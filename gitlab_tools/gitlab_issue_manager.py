@@ -21,6 +21,53 @@ class GitLabIssueManager:
             'Private-Token': private_token,
             'Content-Type': 'application/json'
         }
+        self.user_mapping = self.load_user_mapping()
+
+    def load_user_mapping(self):
+        """
+        加载用户映射配置
+        """
+        mapping_file = os.path.join(os.path.dirname(__file__), 'user_mapping.json')
+        try:
+            if os.path.exists(mapping_file):
+                with open(mapping_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    return config.get('user_mapping', {})
+        except Exception as e:
+            print(f"⚠️  加载用户映射配置失败: {e}")
+        return {}
+
+    def get_gitlab_user_id(self, responsible_person):
+        """
+        根据责任人姓名获取GitLab用户ID
+        """
+        if not responsible_person:
+            return None
+
+        # 查找映射的GitLab用户名
+        gitlab_username = self.user_mapping.get(responsible_person)
+        if not gitlab_username:
+            print(f"⚠️  未找到责任人 '{responsible_person}' 的GitLab用户映射")
+            return None
+
+        # 获取GitLab用户ID
+        try:
+            url = f"{self.gitlab_url}/api/v4/users"
+            params = {'username': gitlab_username}
+            response = requests.get(url, headers=self.headers, params=params)
+
+            if response.status_code == 200:
+                users = response.json()
+                if users:
+                    return users[0]['id']
+                else:
+                    print(f"⚠️  未找到GitLab用户: {gitlab_username}")
+            else:
+                print(f"⚠️  获取GitLab用户信息失败: {response.status_code}")
+        except Exception as e:
+            print(f"⚠️  获取GitLab用户ID异常: {e}")
+
+        return None
 
     def create_issue(self, project_id, title, description=None, assignee_ids=None,
                     milestone_id=None, labels=None, due_date=None, weight=None):
