@@ -1,1 +1,66 @@
+# Python
 *.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 测试文件
+test_*.py
+*_test.py
+test_*.sh
+*_test.sh
+test_*.json
+*_test.json
+test_*.log
+*_test.log
+
+# 临时文件
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+*.old
+*.orig
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境文件
+.env
+.env.local
+.env.*.local
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 日志文件
+logs/
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db

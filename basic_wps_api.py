@@ -65,6 +65,10 @@ class WPSAPIHandler(BaseHTTPRequestHandler):
             self.upload_wps_data()
         elif path == '/api/database/query':
             self.database_query()
+        elif path == '/api/gitlab/sync':
+            self.sync_to_gitlab()
+        elif path == '/api/gitlab/status':
+            self.get_gitlab_status()
         else:
             self.send_error(404, "Not Found")
 
@@ -160,15 +164,24 @@ class WPSAPIHandler(BaseHTTPRequestHandler):
             try:
                 logger.info(f"处理第 {index} 条记录: {json.dumps(record, ensure_ascii=False)}")
 
-                # 构建插入数据
-                title = str(record.get('issue_title', record.get('title', ''))).replace("'", "\\'")
-                description = str(record.get('problem_description', record.get('description', ''))).replace("'", "\\'")
+                # 提取所有WPS表格字段
+                serial_number = str(record.get('serial_number', '')).replace("'", "\\'")
+                project_name = str(record.get('project_name', '未命名项目')).replace("'", "\\'")
+                problem_category = str(record.get('problem_category', '')).replace("'", "\\'")
+                severity_level = record.get('severity_level', 0)
+                problem_description = str(record.get('problem_description', '')).replace("'", "\\'")
+                solution = str(record.get('solution', '')).replace("'", "\\'")
+                action_priority = record.get('action_priority', 0)
+                action_record = str(record.get('action_record', '')).replace("'", "\\'")
+                initiator = str(record.get('initiator', '')).replace("'", "\\'")
+                responsible_person = str(record.get('responsible_person', '')).replace("'", "\\'")
 
                 # 状态映射：将WPS的状态值映射到数据库ENUM值
                 status_mapping = {
                     'C': 'closed',      # 已完成
                     'O': 'open',        # 开放
                     'D': 'in_progress', # 进行中
+                    'P': 'open',        # P状态映射为open
                     'open': 'open',
                     'in_progress': 'in_progress',
                     'closed': 'closed',
@@ -177,27 +190,30 @@ class WPSAPIHandler(BaseHTTPRequestHandler):
                 raw_status = str(record.get('status', 'open'))
                 status = status_mapping.get(raw_status, 'open').replace("'", "\\'")
 
-                # 优先级映射
-                priority_mapping = {
-                    '1': 'urgent',
-                    '2': 'high',
-                    '3': 'medium',
-                    '4': 'low',
-                    'urgent': 'urgent',
-                    'high': 'high',
-                    'medium': 'medium',
-                    'low': 'low'
-                }
-                raw_priority = str(record.get('priority', 'medium'))
-                priority = priority_mapping.get(raw_priority, 'medium').replace("'", "\\'")
+                # 时间字段处理
+                start_time = str(record.get('start_time', '')).replace("'", "\\'")
+                target_completion_time = str(record.get('target_completion_time', '')).replace("'", "\\'")
+                actual_completion_time = str(record.get('actual_completion_time', '')).replace("'", "\\'")
+                remarks = str(record.get('remarks', '')).replace("'", "\\'")
 
-                assignee = str(record.get('responsible_person', record.get('assignee', ''))).replace("'", "\\'")
-                reporter = str(record.get('initiator', record.get('reporter', ''))).replace("'", "\\'")
+                # 处理时间字段的SQL格式
+                start_time_sql = f"'{start_time}'" if start_time else 'NULL'
+                target_completion_time_sql = f"'{target_completion_time}'" if target_completion_time else 'NULL'
+                actual_completion_time_sql = f"'{actual_completion_time}'" if actual_completion_time else 'NULL'
 
-                # 使用mysql命令行工具插入数据
+                # 使用mysql命令行工具插入完整数据
                 sql = f"""
-                INSERT INTO issues (title, description, status, priority, assignee, reporter, created_at)
-                VALUES ('{title}', '{description}', '{status}', '{priority}', '{assignee}', '{reporter}', NOW())
+                INSERT INTO issues (
+                    serial_number, project_name, problem_category, severity_level,
+                    problem_description, solution, action_priority, action_record,
+                    initiator, responsible_person, status, start_time,
+                    target_completion_time, actual_completion_time, remarks, created_at
+                ) VALUES (
+                    '{serial_number}', '{project_name}', '{problem_category}', {severity_level},
+                    '{problem_description}', '{solution}', {action_priority}, '{action_record}',
+                    '{initiator}', '{responsible_person}', '{status}', {start_time_sql},
+                    {target_completion_time_sql}, {actual_completion_time_sql}, '{remarks}', NOW()
+                )
                 """
 
                 logger.info(f"执行SQL: {sql}")
@@ -475,6 +491,91 @@ class WPSAPIHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """重写日志方法"""
         logger.info(f"{self.address_string()} - {format % args}")
+
+    def sync_to_gitlab(self):
+        """同步数据库议题到GitLab"""
+        try:
+            logger.info("开始同步数据库议题到GitLab...")
+
+            # 运行GitLab同步脚本
+            sync_script = '/root/update_issue/gitlab_tools/sync_database_to_gitlab.py'
+            result = subprocess.run(['python3', sync_script],
+                                  capture_output=True, text=True, cwd='/root/update_issue/gitlab_tools')
+
+            if result.returncode == 0:
+                logger.info("GitLab同步成功")
+                response = {
+                    'success': True,
+                    'message': '数据库议题已成功同步到GitLab',
+                    'output': result.stdout,
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.send_json_response(response, 200)
+            else:
+                logger.error(f"GitLab同步失败: {result.stderr}")
+                response = {
+                    'success': False,
+                    'message': 'GitLab同步失败',
+                    'error': result.stderr,
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.send_json_response(response, 500)
+
+        except Exception as e:
+            logger.error(f"GitLab同步异常: {e}")
+            response = {
+                'success': False,
+                'message': 'GitLab同步异常',
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
+            self.send_json_response(response, 500)
+
+    def get_gitlab_status(self):
+        """获取GitLab同步状态"""
+        try:
+            # 查询数据库中的GitLab同步状态
+            cmd = [
+                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
+                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+                '-e', f"USE {DB_CONFIG['database']}; SELECT COUNT(*) as total, COUNT(gitlab_url) as synced, sync_status FROM issues GROUP BY sync_status;"
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            # 解析结果
+            lines = result.stdout.strip().split('\n')
+            if len(lines) >= 2:
+                headers = lines[0].split('\t')
+                stats = []
+                for line in lines[1:]:
+                    if line.strip():
+                        values = line.split('\t')
+                        stats.append(dict(zip(headers, values)))
+
+                response = {
+                    'success': True,
+                    'gitlab_sync_status': stats,
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                response = {
+                    'success': True,
+                    'message': '无法获取GitLab同步状态',
+                    'timestamp': datetime.now().isoformat()
+                }
+
+            self.send_json_response(response, 200)
+
+        except Exception as e:
+            logger.error(f"获取GitLab状态异常: {e}")
+            response = {
+                'success': False,
+                'message': '获取GitLab状态异常',
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
+            self.send_json_response(response, 500)
 
 def run_server():
     """运行服务器"""
