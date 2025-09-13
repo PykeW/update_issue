@@ -12,6 +12,7 @@ import hashlib
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
+from typing import Dict, List, Optional, Any, Union
 
 # 配置日志
 logging.basicConfig(
@@ -25,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 数据库配置
-DB_CONFIG = {
+DB_CONFIG: Dict[str, Union[str, int]] = {
     'host': 'localhost',
     'port': 3306,
     'user': 'issue',
@@ -36,7 +37,7 @@ DB_CONFIG = {
 class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
     """增强版WPS API请求处理器"""
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         """处理GET请求"""
         parsed_path = urlparse(self.path)
         path = parsed_path.path
@@ -52,7 +53,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         """处理POST请求"""
         parsed_path = urlparse(self.path)
         path = parsed_path.path
@@ -66,9 +67,9 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    def health_check(self):
+    def health_check(self) -> None:
         """健康检查"""
-        response = {
+        response: Dict[str, Any] = {
             "status": "running",
             "service": "Enhanced WPS Data Receiver",
             "port": 5000,
@@ -82,7 +83,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
         }
         self.send_json_response(response)
 
-    def get_status(self):
+    def get_status(self) -> None:
         """获取服务状态"""
         try:
             # 检查数据库连接
@@ -91,7 +92,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             # 获取数据库统计信息
             stats = self.get_database_stats()
 
-            response = {
+            response: Dict[str, Any] = {
                 "service": "Enhanced WPS Data Receiver",
                 "status": "running",
                 "database_connected": db_status,
@@ -103,7 +104,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"获取状态失败: {e}")
             self.send_error(500, str(e))
 
-    def upload_wps_data(self):
+    def upload_wps_data(self) -> None:
         """处理WPS数据上传"""
         try:
             content_length = int(self.headers['Content-Length'])
@@ -120,7 +121,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             # 处理数据
             result = self.process_wps_data(table_data)
 
-            response = {
+            response: Dict[str, Any] = {
                 "success": True,
                 "message": f"成功处理 {len(table_data)} 条记录",
                 "result": result,
@@ -132,9 +133,9 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"处理WPS数据失败: {e}")
             self.send_error(500, str(e))
 
-    def process_wps_data(self, table_data):
+    def process_wps_data(self, table_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """处理WPS数据，支持智能更新"""
-        results = {
+        results: Dict[str, Any] = {
             "inserted": 0,
             "updated": 0,
             "failed": 0,
@@ -199,7 +200,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
 
         return results
 
-    def generate_data_hash(self, row_data):
+    def generate_data_hash(self, row_data: Dict[str, Any]) -> str:
         """生成数据哈希值"""
         # 排除时间戳字段，只对业务数据进行哈希
         hash_fields = [
@@ -216,12 +217,12 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
 
         return hashlib.md5(hash_string.encode('utf-8')).hexdigest()
 
-    def find_existing_issue(self, serial_number, project_name):
+    def find_existing_issue(self, serial_number: str, project_name: str) -> Optional[Dict[str, Any]]:
         """查找现有议题"""
         try:
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"""
                 USE {DB_CONFIG['database']};
                 SELECT * FROM issues
@@ -244,7 +245,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"查找现有议题失败: {e}")
             return None
 
-    def should_update_issue(self, existing_issue, new_data, new_hash):
+    def should_update_issue(self, existing_issue: Dict[str, Any], new_data: Dict[str, Any], new_hash: str) -> bool:
         """判断是否需要更新议题"""
         # 比较数据哈希值
         if existing_issue.get('data_hash') == new_hash:
@@ -258,7 +259,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
 
         return False
 
-    def insert_issue(self, row_data, data_hash):
+    def insert_issue(self, row_data: Dict[str, Any], data_hash: str) -> Optional[int]:
         """插入新议题"""
         try:
             # 转换时间格式
@@ -266,9 +267,25 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             target_time = self.format_datetime(row_data.get('target_completion_time', ''))
             actual_time = self.format_datetime(row_data.get('actual_completion_time', ''))
 
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            # 安全地转义字符串
+            def escape_sql_string(value: Any) -> str:
+                return str(value).replace("'", "\\'")
+
+            # 构建SQL值
+            serial_number = escape_sql_string(row_data.get('serial_number', ''))
+            project_name = escape_sql_string(row_data.get('project_name', ''))
+            problem_category = escape_sql_string(row_data.get('problem_category', ''))
+            problem_description = escape_sql_string(row_data.get('problem_description', ''))
+            solution = escape_sql_string(row_data.get('solution', ''))
+            action_record = escape_sql_string(row_data.get('action_record', ''))
+            initiator = escape_sql_string(row_data.get('initiator', ''))
+            responsible_person = escape_sql_string(row_data.get('responsible_person', ''))
+            status = escape_sql_string(row_data.get('status', 'open'))
+            remarks = escape_sql_string(row_data.get('remarks', ''))
+
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"""
                 USE {DB_CONFIG['database']};
                 INSERT INTO issues (
@@ -278,21 +295,21 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                     target_completion_time, actual_completion_time, remarks,
                     operation_type, data_hash, sync_status
                 ) VALUES (
-                    '{row_data.get('serial_number', '')}',
-                    '{row_data.get('project_name', '')}',
-                    '{row_data.get('problem_category', '')}',
+                    '{serial_number}',
+                    '{project_name}',
+                    '{problem_category}',
                     {int(row_data.get('severity_level', 0))},
-                    '{row_data.get('problem_description', '').replace("'", "\\'")}',
-                    '{row_data.get('solution', '').replace("'", "\\'")}',
+                    '{problem_description}',
+                    '{solution}',
                     {int(row_data.get('action_priority', 0))},
-                    '{row_data.get('action_record', '').replace("'", "\\'")}',
-                    '{row_data.get('initiator', '')}',
-                    '{row_data.get('responsible_person', '')}',
-                    '{row_data.get('status', 'open')}',
+                    '{action_record}',
+                    '{initiator}',
+                    '{responsible_person}',
+                    '{status}',
                     {f"'{start_time}'" if start_time else 'NULL'},
                     {f"'{target_time}'" if target_time else 'NULL'},
                     {f"'{actual_time}'" if actual_time else 'NULL'},
-                    '{row_data.get('remarks', '').replace("'", "\\'")}',
+                    '{remarks}',
                     'insert',
                     '{data_hash}',
                     'pending'
@@ -314,7 +331,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"插入议题失败: {e}")
             return None
 
-    def update_issue(self, issue_id, row_data, data_hash):
+    def update_issue(self, issue_id: int, row_data: Dict[str, Any], data_hash: str) -> bool:
         """更新现有议题"""
         try:
             # 转换时间格式
@@ -322,25 +339,39 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             target_time = self.format_datetime(row_data.get('target_completion_time', ''))
             actual_time = self.format_datetime(row_data.get('actual_completion_time', ''))
 
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            # 安全地转义字符串
+            def escape_sql_string(value: Any) -> str:
+                return str(value).replace("'", "\\'")
+
+            # 构建SQL值
+            problem_category = escape_sql_string(row_data.get('problem_category', ''))
+            problem_description = escape_sql_string(row_data.get('problem_description', ''))
+            solution = escape_sql_string(row_data.get('solution', ''))
+            action_record = escape_sql_string(row_data.get('action_record', ''))
+            initiator = escape_sql_string(row_data.get('initiator', ''))
+            responsible_person = escape_sql_string(row_data.get('responsible_person', ''))
+            status = escape_sql_string(row_data.get('status', 'open'))
+            remarks = escape_sql_string(row_data.get('remarks', ''))
+
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"""
                 USE {DB_CONFIG['database']};
                 UPDATE issues SET
-                    problem_category = '{row_data.get('problem_category', '')}',
+                    problem_category = '{problem_category}',
                     severity_level = {int(row_data.get('severity_level', 0))},
-                    problem_description = '{row_data.get('problem_description', '').replace("'", "\\'")}',
-                    solution = '{row_data.get('solution', '').replace("'", "\\'")}',
+                    problem_description = '{problem_description}',
+                    solution = '{solution}',
                     action_priority = {int(row_data.get('action_priority', 0))},
-                    action_record = '{row_data.get('action_record', '').replace("'", "\\'")}',
-                    initiator = '{row_data.get('initiator', '')}',
-                    responsible_person = '{row_data.get('responsible_person', '')}',
-                    status = '{row_data.get('status', 'open')}',
+                    action_record = '{action_record}',
+                    initiator = '{initiator}',
+                    responsible_person = '{responsible_person}',
+                    status = '{status}',
                     start_time = {f"'{start_time}'" if start_time else 'NULL'},
                     target_completion_time = {f"'{target_time}'" if target_time else 'NULL'},
                     actual_completion_time = {f"'{actual_time}'" if actual_time else 'NULL'},
-                    remarks = '{row_data.get('remarks', '').replace("'", "\\'")}',
+                    remarks = '{remarks}',
                     operation_type = 'update',
                     data_hash = '{data_hash}',
                     sync_status = 'pending',
@@ -354,7 +385,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"更新议题失败: {e}")
             return False
 
-    def format_datetime(self, datetime_str):
+    def format_datetime(self, datetime_str: str) -> Optional[str]:
         """格式化时间字符串"""
         if not datetime_str or datetime_str.strip() == '':
             return None
@@ -381,12 +412,12 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
         except Exception:
             return None
 
-    def check_database_connection(self):
+    def check_database_connection(self) -> bool:
         """检查数据库连接"""
         try:
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"USE {DB_CONFIG['database']}; SELECT 1;"
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -394,12 +425,12 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
         except Exception:
             return False
 
-    def get_database_stats(self):
+    def get_database_stats(self) -> Dict[str, Any]:
         """获取数据库统计信息"""
         try:
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"""
                 USE {DB_CONFIG['database']};
                 SELECT
@@ -426,12 +457,12 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"获取数据库统计失败: {e}")
             return {}
 
-    def get_issues(self):
+    def get_issues(self) -> None:
         """获取议题列表"""
         try:
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"""
                 USE {DB_CONFIG['database']};
                 SELECT
@@ -446,7 +477,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-            issues = []
+            issues: List[Dict[str, Any]] = []
             if result.stdout.strip():
                 lines = result.stdout.strip().split('\n')
                 if len(lines) > 1:
@@ -455,7 +486,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                         values = line.split('\t')
                         issues.append(dict(zip(headers, values)))
 
-            response = {
+            response: Dict[str, Any] = {
                 "success": True,
                 "issues": issues,
                 "count": len(issues)
@@ -465,7 +496,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"获取议题列表失败: {e}")
             self.send_error(500, str(e))
 
-    def sync_to_gitlab(self):
+    def sync_to_gitlab(self) -> None:
         """同步到GitLab"""
         try:
             logger.info("开始同步数据库议题到GitLab...")
@@ -474,7 +505,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                                   capture_output=True, text=True, cwd='/root/update_issue/gitlab_tools')
 
             if result.returncode == 0:
-                response = {
+                response: Dict[str, Any] = {
                     "success": True,
                     "message": "GitLab同步成功",
                     "output": result.stdout
@@ -491,12 +522,12 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"GitLab同步失败: {e}")
             self.send_error(500, str(e))
 
-    def get_gitlab_sync_status(self):
+    def get_gitlab_sync_status(self) -> None:
         """获取GitLab同步状态"""
         try:
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"""
                 USE {DB_CONFIG['database']};
                 SELECT
@@ -510,7 +541,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-            sync_stats = []
+            sync_stats: List[Dict[str, Any]] = []
             if result.stdout.strip():
                 lines = result.stdout.strip().split('\n')
                 if len(lines) > 1:
@@ -519,7 +550,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                         values = line.split('\t')
                         sync_stats.append(dict(zip(headers, values)))
 
-            response = {
+            response: Dict[str, Any] = {
                 "success": True,
                 "sync_stats": sync_stats,
                 "timestamp": datetime.now().isoformat()
@@ -529,7 +560,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"获取GitLab同步状态失败: {e}")
             self.send_error(500, str(e))
 
-    def update_gitlab_progress(self):
+    def update_gitlab_progress(self) -> None:
         """更新GitLab进度"""
         try:
             content_length = int(self.headers['Content-Length'])
@@ -544,9 +575,9 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                 return
 
             # 更新数据库中的GitLab进度
-            cmd = [
-                'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-                '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+            cmd: List[str] = [
+                'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+                '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
                 '-e', f"""
                 USE {DB_CONFIG['database']};
                 UPDATE issues
@@ -558,7 +589,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             if result.returncode == 0:
-                response = {
+                response: Dict[str, Any] = {
                     "success": True,
                     "message": f"议题 #{issue_id} 进度已更新为 {progress}"
                 }
@@ -573,7 +604,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"更新GitLab进度失败: {e}")
             self.send_error(500, str(e))
 
-    def send_json_response(self, data):
+    def send_json_response(self, data: Dict[str, Any]) -> None:
         """发送JSON响应"""
         self.send_response(200)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -583,11 +614,11 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
         response_json = json.dumps(data, ensure_ascii=False, indent=2)
         self.wfile.write(response_json.encode('utf-8'))
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: Any) -> None:
         """自定义日志格式"""
         logger.info(f"{self.address_string()} - {format % args}")
 
-def main():
+def main() -> None:
     """主函数"""
     server_address = ('0.0.0.0', 5000)
     httpd = HTTPServer(server_address, EnhancedWPSAPIHandler)

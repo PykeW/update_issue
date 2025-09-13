@@ -10,13 +10,14 @@ import sys
 import json
 import requests
 import subprocess
+from typing import Dict, List, Optional, Any, Union
 
 # 添加当前目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from gitlab_issue_manager import GitLabIssueManager, load_config
 
-def load_user_mapping():
+def load_user_mapping() -> Dict[str, Any]:
     """
     加载用户映射配置
     """
@@ -38,7 +39,7 @@ def load_user_mapping():
             'default_assignee': 'kohill'
         }
 
-def get_assignee_ids(manager, responsible_person, user_mapping):
+def get_assignee_ids(manager: GitLabIssueManager, responsible_person: str, user_mapping: Dict[str, str]) -> Optional[List[int]]:
     """
     根据责任人姓名获取GitLab用户ID列表（支持多人指派）
     自动识别包含 "/" 的责任人并拆分为多人指派
@@ -51,7 +52,7 @@ def get_assignee_ids(manager, responsible_person, user_mapping):
             person_list = [p.strip() for p in responsible_person.split('/')]
             print(f"   拆分为: {person_list}")
 
-            assignee_ids = []
+            assignee_ids: List[int] = []
             for person in person_list:
                 if person:  # 确保不是空字符串
                     # 查找单个责任人的映射
@@ -110,12 +111,11 @@ def get_assignee_ids(manager, responsible_person, user_mapping):
         print(f"❌ 获取指派人ID异常: {e}")
         return None
 
-def get_user_id_by_username(manager, username):
+def get_user_id_by_username(manager: GitLabIssueManager, username: str) -> Optional[int]:
     """
     根据用户名获取GitLab用户ID
     """
     try:
-        import requests
         url = f"{manager.gitlab_url}/api/v4/users"
         params = {'username': username}
         response = requests.get(url, headers=manager.headers, params=params)
@@ -135,7 +135,7 @@ def get_user_id_by_username(manager, username):
         return None
 
 # 数据库配置
-DB_CONFIG = {
+DB_CONFIG: Dict[str, Union[str, int]] = {
     'host': 'localhost',
     'port': 3306,
     'user': 'issue',
@@ -143,14 +143,14 @@ DB_CONFIG = {
     'database': 'issue_database'
 }
 
-def get_database_issues():
+def get_database_issues() -> List[Dict[str, Any]]:
     """
     从数据库获取所有议题，包括GitLab同步状态
     """
     try:
-        cmd = [
-            'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-            '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+        cmd: List[str] = [
+            'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+            '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
             '-e', f"""
             USE {DB_CONFIG['database']};
             SELECT
@@ -176,7 +176,7 @@ def get_database_issues():
 
         # 获取列名
         headers = lines[0].split('\t')
-        issues = []
+        issues: List[Dict[str, Any]] = []
 
         # 解析数据行
         for line in lines[1:]:
@@ -190,7 +190,7 @@ def get_database_issues():
         print(f"❌ 获取数据库议题失败: {e}")
         return []
 
-def load_gitlab_config():
+def load_gitlab_config() -> Dict[str, Any]:
     """
     加载GitLab配置
     """
@@ -203,7 +203,7 @@ def load_gitlab_config():
             print(f"⚠️  读取GitLab配置文件失败: {e}")
     return {}
 
-def map_severity_to_labels(severity_level, config):
+def map_severity_to_labels(severity_level: int, config: Dict[str, Any]) -> List[str]:
     """
     将严重程度映射到GitLab标签
     """
@@ -217,7 +217,7 @@ def map_severity_to_labels(severity_level, config):
         return mapping[severity_str]
     return []
 
-def map_status_to_progress(status, config):
+def map_status_to_progress(status: str, config: Dict[str, Any]) -> str:
     """
     将状态映射到GitLab进度标签
     """
@@ -230,7 +230,7 @@ def map_status_to_progress(status, config):
         return mapping[status]
     return '进度::To do'
 
-def get_issue_type_label(problem_description, config):
+def get_issue_type_label(problem_description: str, config: Dict[str, Any]) -> str:
     """
     根据问题描述智能识别议题类型
     """
@@ -248,7 +248,7 @@ def get_issue_type_label(problem_description, config):
 
     return '议题类型::功能优化'
 
-def create_gitlab_issue(issue_data, manager, project_id, config, user_mapping):
+def create_gitlab_issue(issue_data: Dict[str, Any], manager: GitLabIssueManager, project_id: int, config: Dict[str, Any], user_mapping: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """
     在GitLab中创建议题
     """
@@ -304,7 +304,7 @@ def create_gitlab_issue(issue_data, manager, project_id, config, user_mapping):
             full_description = details
 
         # 构建标签
-        labels = []
+        labels: List[str] = []
 
         # 严重程度标签
         severity_labels = map_severity_to_labels(issue_data.get('severity_level', 0), config)
@@ -347,7 +347,7 @@ def create_gitlab_issue(issue_data, manager, project_id, config, user_mapping):
         print(f"❌ 创建GitLab议题异常: {e}")
         return None
 
-def update_gitlab_issue(issue_data, gitlab_issue, manager, project_id, config, user_mapping):
+def update_gitlab_issue(issue_data: Dict[str, Any], gitlab_issue: Dict[str, Any], manager: GitLabIssueManager, project_id: int, config: Dict[str, Any], user_mapping: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """
     更新GitLab议题
     """
@@ -403,7 +403,7 @@ def update_gitlab_issue(issue_data, gitlab_issue, manager, project_id, config, u
             full_description = details
 
         # 构建标签
-        labels = []
+        labels: List[str] = []
 
         # 严重程度标签
         severity_labels = map_severity_to_labels(issue_data.get('severity_level', 0), config)
@@ -447,7 +447,7 @@ def update_gitlab_issue(issue_data, gitlab_issue, manager, project_id, config, u
         print(f"❌ 更新GitLab议题异常: {e}")
         return None
 
-def get_gitlab_issue_progress(gitlab_issue):
+def get_gitlab_issue_progress(gitlab_issue: Dict[str, Any]) -> str:
     """
     从GitLab议题中提取进度信息
     """
@@ -471,7 +471,7 @@ def get_gitlab_issue_progress(gitlab_issue):
     except Exception:
         return '进度::To do'
 
-def update_database_issue(issue_id, gitlab_issue, operation_type='sync'):
+def update_database_issue(issue_id: int, gitlab_issue: Dict[str, Any], operation_type: str = 'sync') -> bool:
     """
     更新数据库中的议题信息
     """
@@ -481,9 +481,9 @@ def update_database_issue(issue_id, gitlab_issue, operation_type='sync'):
         gitlab_labels = json.dumps(gitlab_issue.get('labels', []), ensure_ascii=False)
         gitlab_progress = get_gitlab_issue_progress(gitlab_issue)
 
-        cmd = [
-            'mysql', '-u', DB_CONFIG['user'], f'-p{DB_CONFIG["password"]}',
-            '-h', DB_CONFIG['host'], '-P', str(DB_CONFIG['port']),
+        cmd: List[str] = [
+            'mysql', '-u', str(DB_CONFIG['user']), f'-p{str(DB_CONFIG["password"])}',
+            '-h', str(DB_CONFIG['host']), '-P', str(DB_CONFIG['port']),
             '-e', f"""
             USE {DB_CONFIG['database']};
             UPDATE issues SET
@@ -504,7 +504,7 @@ def update_database_issue(issue_id, gitlab_issue, operation_type='sync'):
         print(f"❌ 更新数据库议题失败: {e}")
         return False
 
-def sync_issues_to_gitlab():
+def sync_issues_to_gitlab() -> bool:
     """
     同步数据库议题到GitLab
     """
@@ -554,6 +554,10 @@ def sync_issues_to_gitlab():
     # 处理每个议题
     for issue in issues:
         issue_id = issue.get('id')
+        if not issue_id:
+            print(f"⚠️  跳过无效议题: 缺少ID")
+            continue
+
         project_name = issue.get('project_name', '')
         gitlab_url = issue.get('gitlab_url', '')
         sync_status = issue.get('sync_status', 'pending')
@@ -620,7 +624,7 @@ def sync_issues_to_gitlab():
 
     return stats['failed'] == 0
 
-def main():
+def main() -> None:
     """
     主函数
     """

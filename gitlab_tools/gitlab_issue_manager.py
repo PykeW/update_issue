@@ -10,9 +10,10 @@ import sys
 import requests
 import json
 from datetime import datetime
+from typing import Dict, List, Optional, Any, Union
 
 class GitLabIssueManager:
-    def __init__(self, gitlab_url, private_token):
+    def __init__(self, gitlab_url: str, private_token: str) -> None:
         """
         初始化 GitLab API 客户端
         """
@@ -23,7 +24,7 @@ class GitLabIssueManager:
         }
         self.user_mapping = self.load_user_mapping()
 
-    def load_user_mapping(self):
+    def load_user_mapping(self) -> Dict[str, str]:
         """
         加载用户映射配置
         """
@@ -37,7 +38,7 @@ class GitLabIssueManager:
             print(f"⚠️  加载用户映射配置失败: {e}")
         return {}
 
-    def get_gitlab_user_id(self, responsible_person):
+    def get_gitlab_user_id(self, responsible_person: str) -> Optional[int]:
         """
         根据责任人姓名获取GitLab用户ID
         """
@@ -69,14 +70,16 @@ class GitLabIssueManager:
 
         return None
 
-    def create_issue(self, project_id, title, description=None, assignee_ids=None,
-                    milestone_id=None, labels=None, due_date=None, weight=None):
+    def create_issue(self, project_id: int, title: str, description: Optional[str] = None,
+                    assignee_ids: Optional[List[int]] = None, milestone_id: Optional[int] = None,
+                    labels: Optional[List[str]] = None, due_date: Optional[str] = None,
+                    weight: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         创建 GitLab 议题
         """
         api_url = f"{self.gitlab_url}/api/v4/projects/{project_id}/issues"
 
-        data = {'title': title}
+        data: Dict[str, Any] = {'title': title}
         if description:
             data['description'] = description
         if assignee_ids:
@@ -101,9 +104,11 @@ class GitLabIssueManager:
                 print(f"响应内容: {e.response.text}")
             return None
 
-    def update_issue(self, project_id, issue_iid, title=None, description=None,
-                    assignee_ids=None, milestone_id=None, labels=None,
-                    due_date=None, weight=None, state_event=None):
+    def update_issue(self, project_id: int, issue_iid: int, title: Optional[str] = None,
+                    description: Optional[str] = None, assignee_ids: Optional[List[int]] = None,
+                    milestone_id: Optional[int] = None, labels: Optional[List[str]] = None,
+                    due_date: Optional[str] = None, weight: Optional[int] = None,
+                    state_event: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         更新 GitLab 议题
 
@@ -121,7 +126,7 @@ class GitLabIssueManager:
         """
         api_url = f"{self.gitlab_url}/api/v4/projects/{project_id}/issues/{issue_iid}"
 
-        data = {}
+        data: Dict[str, Any] = {}
         if title:
             data['title'] = title
         if description:
@@ -150,19 +155,19 @@ class GitLabIssueManager:
                 print(f"响应内容: {e.response.text}")
             return None
 
-    def close_issue(self, project_id, issue_iid):
+    def close_issue(self, project_id: int, issue_iid: int) -> Optional[Dict[str, Any]]:
         """
         关闭议题
         """
         return self.update_issue(project_id, issue_iid, state_event='close')
 
-    def reopen_issue(self, project_id, issue_iid):
+    def reopen_issue(self, project_id: int, issue_iid: int) -> Optional[Dict[str, Any]]:
         """
         重新打开议题
         """
         return self.update_issue(project_id, issue_iid, state_event='reopen')
 
-    def get_issue(self, project_id, issue_iid):
+    def get_issue(self, project_id: int, issue_iid: int) -> Optional[Dict[str, Any]]:
         """
         获取议题详情
         """
@@ -176,12 +181,12 @@ class GitLabIssueManager:
             print(f"❌ 获取议题详情时发生错误: {e}")
             return None
 
-    def list_issues(self, project_id, state='opened', per_page=20):
+    def list_issues(self, project_id: int, state: str = 'opened', per_page: int = 20) -> Optional[List[Dict[str, Any]]]:
         """
         列出项目中的议题
         """
         api_url = f"{self.gitlab_url}/api/v4/projects/{project_id}/issues"
-        params = {
+        params: Dict[str, Union[str, int]] = {
             'state': state,
             'per_page': per_page
         }
@@ -194,7 +199,7 @@ class GitLabIssueManager:
             print(f"❌ 获取议题列表时发生错误: {e}")
             return None
 
-    def get_project_info(self, project_id):
+    def get_project_info(self, project_id: int) -> Optional[Dict[str, Any]]:
         """
         获取项目信息
         """
@@ -208,12 +213,12 @@ class GitLabIssueManager:
             print(f"❌ 获取项目信息时发生错误: {e}")
             return None
 
-def load_config():
+def load_config() -> Optional[Dict[str, Any]]:
     """
     从环境变量加载配置
     """
     # 尝试从gitlab.env文件读取配置
-    config = {}
+    config: Dict[str, str] = {}
     env_file = 'gitlab.env'
 
     if os.path.exists(env_file):
@@ -231,21 +236,26 @@ def load_config():
         print("⚠️  未找到环境配置文件，使用系统环境变量")
 
     # 从环境变量获取配置
+    gitlab_url = os.getenv('GITLAB_URL', config.get('GITLAB_URL', ''))
+    private_token = os.getenv('GITLAB_PRIVATE_TOKEN', config.get('GITLAB_PRIVATE_TOKEN', ''))
+    project_id = os.getenv('GITLAB_PROJECT_ID', config.get('GITLAB_PROJECT_ID', ''))
+    project_path = os.getenv('GITLAB_PROJECT_PATH', config.get('GITLAB_PROJECT_PATH', ''))
+
     config.update({
-        'gitlab_url': os.getenv('GITLAB_URL', config.get('GITLAB_URL')),
-        'private_token': os.getenv('GITLAB_PRIVATE_TOKEN', config.get('GITLAB_PRIVATE_TOKEN')),
-        'project_id': os.getenv('GITLAB_PROJECT_ID', config.get('GITLAB_PROJECT_ID')),
-        'project_path': os.getenv('GITLAB_PROJECT_PATH', config.get('GITLAB_PROJECT_PATH'))
+        'gitlab_url': gitlab_url,
+        'private_token': private_token,
+        'project_id': project_id,
+        'project_path': project_path
     })
 
-    missing = [k for k, v in config.items() if not v]
+    missing: List[str] = [k for k, v in config.items() if not v]
     if missing:
         print(f"❌ 缺少必需配置: {', '.join(missing)}")
         return None
 
     return config
 
-def modify_and_close_issue():
+def modify_and_close_issue() -> bool:
     """
     修改议题内容、标签并关闭议题
     """
@@ -377,7 +387,7 @@ def modify_and_close_issue():
 
     return True
 
-def show_usage():
+def show_usage() -> None:
     """
     显示使用说明
     """
