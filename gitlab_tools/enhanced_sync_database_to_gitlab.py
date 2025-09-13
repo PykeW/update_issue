@@ -253,16 +253,16 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager: GitLabIssueManager,
     在GitLab中创建议题
     """
     try:
-        # 构建议题标题
+        # 构建议题标题 - 使用条件表达式提高效率
         project_name = issue_data.get('project_name', '')
         problem_desc = issue_data.get('problem_description', '')
 
-        if project_name and problem_desc:
-            title = f"{project_name}: {problem_desc}"
-        elif project_name:
-            title = project_name
-        else:
-            title = f"议题 #{issue_data.get('id', '')}"
+        # 使用条件表达式替代 if-elif-else 链
+        title = (
+            f"{project_name}: {problem_desc}" if project_name and problem_desc else
+            project_name if project_name else
+            f"议题 #{issue_data.get('id', '')}"
+        )
 
         # 构建议题描述
         initiator = issue_data.get('initiator', '')
@@ -295,13 +295,12 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager: GitLabIssueManager,
 *此议题由WPS数据同步系统自动创建*
         """.strip()
 
-        # 合并描述
-        if description and details:
-            full_description = f"{description}\n\n{details}"
-        elif description:
-            full_description = description
-        else:
-            full_description = details
+        # 合并描述 - 使用条件表达式提高效率
+        full_description = (
+            f"{description}\n\n{details}" if description and details else
+            description if description else
+            details
+        )
 
         # 构建标签
         labels: List[str] = []
@@ -352,16 +351,16 @@ def update_gitlab_issue(issue_data: Dict[str, Any], gitlab_issue: Dict[str, Any]
     更新GitLab议题
     """
     try:
-        # 构建新的议题标题
+        # 构建新的议题标题 - 使用条件表达式提高效率
         project_name = issue_data.get('project_name', '')
         problem_desc = issue_data.get('problem_description', '')
 
-        if project_name and problem_desc:
-            title = f"{project_name}: {problem_desc}"
-        elif project_name:
-            title = project_name
-        else:
-            title = f"议题 #{issue_data.get('id', '')}"
+        # 使用条件表达式替代 if-elif-else 链
+        title = (
+            f"{project_name}: {problem_desc}" if project_name and problem_desc else
+            project_name if project_name else
+            f"议题 #{issue_data.get('id', '')}"
+        )
 
         # 构建新的议题描述
         initiator = issue_data.get('initiator', '')
@@ -394,13 +393,12 @@ def update_gitlab_issue(issue_data: Dict[str, Any], gitlab_issue: Dict[str, Any]
 *此议题由WPS数据同步系统自动更新*
         """.strip()
 
-        # 合并描述
-        if description and details:
-            full_description = f"{description}\n\n{details}"
-        elif description:
-            full_description = description
-        else:
-            full_description = details
+        # 合并描述 - 使用条件表达式提高效率
+        full_description = (
+            f"{description}\n\n{details}" if description and details else
+            description if description else
+            details
+        )
 
         # 构建标签
         labels: List[str] = []
@@ -459,14 +457,13 @@ def get_gitlab_issue_progress(gitlab_issue: Dict[str, Any]) -> str:
             if label.startswith('进度::'):
                 return label
 
-        # 根据状态推断进度
+        # 根据状态推断进度 - 使用字典映射提高效率
         state = gitlab_issue.get('state', 'opened')
-        if state == 'closed':
-            return '进度::Done'
-        elif state == 'opened':
-            return '进度::To do'
-        else:
-            return '进度::Doing'
+        state_mapping = {
+            'closed': '进度::Done',
+            'opened': '进度::To do'
+        }
+        return state_mapping.get(state, '进度::Doing')
 
     except Exception:
         return '进度::To do'
