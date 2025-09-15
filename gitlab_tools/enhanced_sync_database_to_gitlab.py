@@ -464,8 +464,6 @@ def update_database_issue(issue_id: int, gitlab_issue: Dict[str, Any], operation
     """
     try:
         gitlab_url = gitlab_issue.get('web_url', '')
-        gitlab_id = gitlab_issue.get('iid', '')
-        gitlab_labels = json.dumps(gitlab_issue.get('labels', []), ensure_ascii=False)
         gitlab_progress = get_gitlab_issue_progress(gitlab_issue)
 
         cmd: List[str] = [
