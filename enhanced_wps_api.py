@@ -49,6 +49,35 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             '-e', sql_query
         ]
 
+    def map_status(self, status: str) -> str:
+        """映射状态值到数据库枚举值"""
+        status_mapping = {
+            'C': 'closed',
+            'O': 'open',
+            'P': 'in_progress',
+            'R': 'resolved',
+            'open': 'open',
+            'in_progress': 'in_progress',
+            'closed': 'closed',
+            'resolved': 'resolved'
+        }
+        return status_mapping.get(status, 'open')
+
+    def safe_convert_int(self, value: Any, default: int = 0) -> int:
+        """安全转换为整数"""
+        try:
+            if value is None or str(value).strip() == '':
+                return default
+            # 先转换为字符串，然后处理
+            str_value = str(value).strip()
+            # 如果是空字符串或None，返回默认值
+            if not str_value or str_value.lower() in ['none', 'null', 'nan']:
+                return default
+            # 转换为浮点数再转整数，处理 "2.0" 这种情况
+            return int(float(str_value))
+        except (ValueError, TypeError):
+            return default
+
     def do_GET(self) -> None:
         """处理GET请求"""
         parsed_path = urlparse(self.path)
@@ -186,7 +215,14 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                             })
                         else:
                             results["failed"] += 1
+                            results["details"].append({
+                                "serial_number": row_data.get('serial_number', ''),
+                                "project_name": row_data.get('project_name', ''),
+                                "action": "update_failed",
+                                "error": "更新失败"
+                            })
                     else:
+                        # 数据无变化，但记录已存在，标记为成功
                         results["details"].append({
                             "serial_number": row_data.get('serial_number', ''),
                             "project_name": row_data.get('project_name', ''),
@@ -206,15 +242,23 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                         })
                     else:
                         results["failed"] += 1
+                        results["details"].append({
+                            "serial_number": row_data.get('serial_number', ''),
+                            "project_name": row_data.get('project_name', ''),
+                            "action": "insert_failed",
+                            "error": "插入失败"
+                        })
 
             except Exception as e:
-                logger.error(f"处理单条记录失败: {e}")
+                error_msg = f"处理单条记录失败: {e}"
+                logger.error(error_msg)
+                logger.error(f"记录数据: {row_data}")
                 results["failed"] += 1
                 results["details"].append({
                     "serial_number": row_data.get('serial_number', ''),
                     "project_name": row_data.get('project_name', ''),
                     "action": "failed",
-                    "error": str(e)
+                    "error": error_msg
                 })
 
         return results
@@ -239,13 +283,19 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
     def find_existing_issue(self, serial_number: str, project_name: str) -> Optional[Dict[str, Any]]:
         """查找现有议题"""
         try:
-            sql_query = f"""
-                USE {DB_CONFIG['database']};
-                SELECT * FROM issues
-                WHERE serial_number = '{serial_number}'
-                AND project_name = '{project_name}'
-                LIMIT 1;
-                """
+            # 使用serial_number + project_name作为唯一标识
+            if serial_number and serial_number.strip():
+                sql_query = f"""
+                    USE {DB_CONFIG['database']};
+                    SELECT * FROM issues
+                    WHERE serial_number = '{self.escape_sql_string(serial_number)}'
+                    AND project_name = '{self.escape_sql_string(project_name)}'
+                    LIMIT 1;
+                    """
+            else:
+                # 如果没有serial_number，返回None，让系统插入新记录
+                return None
+
             cmd = self.build_mysql_command(sql_query)
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
@@ -292,7 +342,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             action_record = self.escape_sql_string(row_data.get('action_record', ''))
             initiator = self.escape_sql_string(row_data.get('initiator', ''))
             responsible_person = self.escape_sql_string(row_data.get('responsible_person', ''))
-            status = self.escape_sql_string(row_data.get('status', 'open'))
+            status = self.escape_sql_string(self.map_status(row_data.get('status', 'open')))
             remarks = self.escape_sql_string(row_data.get('remarks', ''))
 
             sql_query = f"""
@@ -307,10 +357,10 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                     '{serial_number}',
                     '{project_name}',
                     '{problem_category}',
-                    {int(row_data.get('severity_level', 0))},
+                    {self.safe_convert_int(row_data.get('severity_level', 0))},
                     '{problem_description}',
                     '{solution}',
-                    {int(row_data.get('action_priority', 0))},
+                    {self.safe_convert_int(row_data.get('action_priority', 0))},
                     '{action_record}',
                     '{initiator}',
                     '{responsible_person}',
@@ -326,7 +376,12 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                 SELECT LAST_INSERT_ID();
                 """
             cmd = self.build_mysql_command(sql_query)
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+            # 检查执行结果
+            if result.returncode != 0:
+                logger.error(f"插入议题SQL执行失败: {result.stderr}")
+                return None
 
             # 提取插入的ID
             if result.stdout.strip():
@@ -355,17 +410,17 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             action_record = self.escape_sql_string(row_data.get('action_record', ''))
             initiator = self.escape_sql_string(row_data.get('initiator', ''))
             responsible_person = self.escape_sql_string(row_data.get('responsible_person', ''))
-            status = self.escape_sql_string(row_data.get('status', 'open'))
+            status = self.escape_sql_string(self.map_status(row_data.get('status', 'open')))
             remarks = self.escape_sql_string(row_data.get('remarks', ''))
 
             sql_query = f"""
                 USE {DB_CONFIG['database']};
                 UPDATE issues SET
                     problem_category = '{problem_category}',
-                    severity_level = {int(row_data.get('severity_level', 0))},
+                    severity_level = {self.safe_convert_int(row_data.get('severity_level', 0))},
                     problem_description = '{problem_description}',
                     solution = '{solution}',
-                    action_priority = {int(row_data.get('action_priority', 0))},
+                    action_priority = {self.safe_convert_int(row_data.get('action_priority', 0))},
                     action_record = '{action_record}',
                     initiator = '{initiator}',
                     responsible_person = '{responsible_person}',
@@ -381,8 +436,13 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                 WHERE id = {issue_id};
                 """
             cmd = self.build_mysql_command(sql_query)
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return result.returncode == 0
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+            if result.returncode != 0:
+                logger.error(f"更新议题SQL执行失败: {result.stderr}")
+                return False
+
+            return True
         except Exception as e:
             logger.error(f"更新议题失败: {e}")
             return False
@@ -393,6 +453,13 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             return None
 
         try:
+            stripped_str = datetime_str.strip()
+
+            # 处理非日期字符串
+            non_date_strings = ['等待排期', '待定', 'TBD', 'N/A', '无', '空']
+            if stripped_str in non_date_strings:
+                return None
+
             # 使用字典映射提高格式匹配效率
             format_patterns = {
                 '%Y-%m-%d %H:%M:%S': '%Y-%m-%d %H:%M:%S',
@@ -403,7 +470,6 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                 '%d/%m/%Y': '%Y-%m-%d %H:%M:%S'
             }
 
-            stripped_str = datetime_str.strip()
             for input_fmt, output_fmt in format_patterns.items():
                 try:
                     dt = datetime.strptime(stripped_str, input_fmt)
