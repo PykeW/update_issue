@@ -154,7 +154,7 @@ def get_database_issues() -> List[Dict[str, Any]]:
             '-e', f"""
             USE {DB_CONFIG['database']};
             SELECT
-                id, serial_number, project_name, problem_category,
+                id, project_name, problem_category,
                 severity_level, problem_description, solution,
                 action_priority, action_record, initiator,
                 responsible_person, status, start_time,
@@ -276,20 +276,11 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager: GitLabIssueManager,
 ## 解决方案
 {issue_data.get('solution', '')}
 
-## 详细信息
-- **序号**: {issue_data.get('serial_number', '')}
-- **项目名称**: {issue_data.get('project_name', '')}
-- **问题分类**: {issue_data.get('problem_category', '')}
-- **严重程度**: {issue_data.get('severity_level', '')}
-- **行动优先级**: {issue_data.get('action_priority', '')}
-- **发起人**: {issue_data.get('initiator', '')}
-- **责任人**: {issue_data.get('responsible_person', '')}
-- **状态**: {issue_data.get('status', '')}
-- **开始时间**: {issue_data.get('start_time', '')}
-- **目标完成时间**: {issue_data.get('target_completion_time', '')}
-- **实际完成时间**: {issue_data.get('actual_completion_time', '')}
-- **行动记录**: {issue_data.get('action_record', '')}
-- **备注**: {issue_data.get('remarks', '')}
+## 行动记录
+{issue_data.get('action_record', '')}
+
+## 备注
+{issue_data.get('remarks', '')}
 
 ---
 *此议题由WPS数据同步系统自动创建*
@@ -375,7 +366,6 @@ def update_gitlab_issue(issue_data: Dict[str, Any], gitlab_issue: Dict[str, Any]
 {issue_data.get('solution', '')}
 
 ## 详细信息
-- **序号**: {issue_data.get('serial_number', '')}
 - **项目名称**: {issue_data.get('project_name', '')}
 - **问题分类**: {issue_data.get('problem_category', '')}
 - **严重程度**: {issue_data.get('severity_level', '')}

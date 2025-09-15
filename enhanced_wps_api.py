@@ -8,7 +8,6 @@
 import logging
 import subprocess
 import json
-import hashlib
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -186,56 +185,54 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
         results: Dict[str, Any] = {
             "inserted": 0,
             "updated": 0,
+            "skipped": 0,
             "failed": 0,
             "details": []
         }
 
         for row_data in table_data:
             try:
-                # 生成数据哈希值
-                data_hash = self.generate_data_hash(row_data)
-
                 # 检查是否已存在
                 existing_issue = self.find_existing_issue(
-                    row_data.get('serial_number', ''),
-                    row_data.get('project_name', '')
+                    row_data.get('project_name', ''),
+                    row_data.get('problem_description', '')
                 )
 
                 if existing_issue:
                     # 更新现有记录
-                    if self.should_update_issue(existing_issue, row_data, data_hash):
-                        update_result = self.update_issue(existing_issue['id'], row_data, data_hash)
+                    if self.should_update_issue(existing_issue, row_data):
+                        update_result = self.update_issue(existing_issue['id'], row_data)
                         if update_result:
                             results["updated"] += 1
                             results["details"].append({
-                                "serial_number": row_data.get('serial_number', ''),
                                 "project_name": row_data.get('project_name', ''),
                                 "action": "updated",
                                 "issue_id": existing_issue['id']
                             })
+                            logger.info(f"议题 {existing_issue['id']} 更新成功")
                         else:
                             results["failed"] += 1
                             results["details"].append({
-                                "serial_number": row_data.get('serial_number', ''),
                                 "project_name": row_data.get('project_name', ''),
                                 "action": "update_failed",
                                 "error": "更新失败"
                             })
+                            logger.error(f"议题 {existing_issue['id']} 更新失败")
                     else:
-                        # 数据无变化，但记录已存在，标记为成功
+                        # 数据无变化，跳过更新，但记录为成功
+                        results["skipped"] += 1
                         results["details"].append({
-                            "serial_number": row_data.get('serial_number', ''),
                             "project_name": row_data.get('project_name', ''),
                             "action": "no_change",
                             "issue_id": existing_issue['id']
                         })
+                        logger.info(f"议题 {existing_issue['id']} 无变化，跳过更新 (problem_description + project_name 完全匹配)")
                 else:
                     # 插入新记录
-                    insert_result = self.insert_issue(row_data, data_hash)
+                    insert_result = self.insert_issue(row_data)
                     if insert_result:
                         results["inserted"] += 1
                         results["details"].append({
-                            "serial_number": row_data.get('serial_number', ''),
                             "project_name": row_data.get('project_name', ''),
                             "action": "inserted",
                             "issue_id": insert_result
@@ -243,7 +240,6 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                     else:
                         results["failed"] += 1
                         results["details"].append({
-                            "serial_number": row_data.get('serial_number', ''),
                             "project_name": row_data.get('project_name', ''),
                             "action": "insert_failed",
                             "error": "插入失败"
@@ -255,7 +251,6 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                 logger.error(f"记录数据: {row_data}")
                 results["failed"] += 1
                 results["details"].append({
-                    "serial_number": row_data.get('serial_number', ''),
                     "project_name": row_data.get('project_name', ''),
                     "action": "failed",
                     "error": error_msg
@@ -263,37 +258,21 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
 
         return results
 
-    def generate_data_hash(self, row_data: Dict[str, Any]) -> str:
-        """生成数据哈希值"""
-        # 排除时间戳字段，只对业务数据进行哈希
-        hash_fields = [
-            'serial_number', 'project_name', 'problem_category',
-            'severity_level', 'problem_description', 'solution',
-            'action_priority', 'action_record', 'initiator',
-            'responsible_person', 'status', 'remarks'
-        ]
 
-        hash_string = ""
-        for field in hash_fields:
-            value = str(row_data.get(field, ''))
-            hash_string += f"{field}:{value}|"
-
-        return hashlib.md5(hash_string.encode('utf-8')).hexdigest()
-
-    def find_existing_issue(self, serial_number: str, project_name: str) -> Optional[Dict[str, Any]]:
-        """查找现有议题"""
+    def find_existing_issue(self, project_name: str, problem_description: str = '') -> Optional[Dict[str, Any]]:
+        """查找现有议题 - 以problem_description为主键匹配"""
         try:
-            # 使用serial_number + project_name作为唯一标识
-            if serial_number and serial_number.strip():
+            # 以problem_description为主键，如果相同再比较project_name
+            if problem_description:
                 sql_query = f"""
                     USE {DB_CONFIG['database']};
                     SELECT * FROM issues
-                    WHERE serial_number = '{self.escape_sql_string(serial_number)}'
+                    WHERE problem_description = '{self.escape_sql_string(problem_description)}'
                     AND project_name = '{self.escape_sql_string(project_name)}'
+                    ORDER BY updated_at DESC
                     LIMIT 1;
                     """
             else:
-                # 如果没有serial_number，返回None，让系统插入新记录
                 return None
 
             cmd = self.build_mysql_command(sql_query)
@@ -311,21 +290,60 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"查找现有议题失败: {e}")
             return None
 
-    def should_update_issue(self, existing_issue: Dict[str, Any], new_data: Dict[str, Any], new_hash: str) -> bool:
-        """判断是否需要更新议题"""
-        # 比较数据哈希值
-        if existing_issue.get('data_hash') == new_hash:
+    def should_update_issue(self, existing_issue: Dict[str, Any], new_data: Dict[str, Any]) -> bool:
+        """判断是否需要更新议题 - 以problem_description为主键的智能比较"""
+        # 首先确认problem_description和project_name相同（这是匹配条件）
+        existing_desc = str(existing_issue.get('problem_description', '')).strip()
+        new_desc = str(new_data.get('problem_description', '')).strip()
+        existing_project = str(existing_issue.get('project_name', '')).strip()
+        new_project = str(new_data.get('project_name', '')).strip()
+
+        if existing_desc != new_desc or existing_project != new_project:
+            logger.warning(f"匹配条件不一致: desc='{existing_desc}' vs '{new_desc}', project='{existing_project}' vs '{new_project}'")
             return False
 
-        # 比较关键字段
-        key_fields = ['problem_description', 'solution', 'status', 'responsible_person']
-        for field in key_fields:
-            if str(existing_issue.get(field, '')) != str(new_data.get(field, '')):
+        # 比较其他业务字段
+        business_fields = [
+            'problem_category', 'severity_level',
+            'solution', 'action_priority', 'action_record', 'initiator',
+            'responsible_person', 'status', 'remarks'
+        ]
+
+        # 比较时间字段（需要特殊处理）
+        time_fields = ['start_time', 'target_completion_time', 'actual_completion_time']
+
+        # 检查业务字段是否有变化
+        for field in business_fields:
+            existing_value = str(existing_issue.get(field, '')).strip()
+            new_value = str(new_data.get(field, '')).strip()
+
+            # 特殊处理status字段，确保映射一致
+            if field == 'status':
+                new_value = self.map_status(new_value)
+
+            # 处理空值比较
+            if existing_value in ['', 'None', 'null', 'NULL', '0']:
+                existing_value = ''
+            if new_value in ['', 'None', 'null', 'NULL', '0']:
+                new_value = ''
+
+            if existing_value != new_value:
+                logger.info(f"字段 {field} 有变化: '{existing_value}' -> '{new_value}'")
                 return True
 
+        # 检查时间字段是否有变化
+        for field in time_fields:
+            existing_time = self.format_datetime(existing_issue.get(field, ''))
+            new_time = self.format_datetime(new_data.get(field, ''))
+
+            if existing_time != new_time:
+                logger.info(f"时间字段 {field} 有变化: '{existing_time}' -> '{new_time}'")
+                return True
+
+        logger.info(f"议题 {existing_issue.get('id')} 无变化，跳过更新 (problem_description + project_name 匹配)")
         return False
 
-    def insert_issue(self, row_data: Dict[str, Any], data_hash: str) -> Optional[int]:
+    def insert_issue(self, row_data: Dict[str, Any]) -> Optional[int]:
         """插入新议题"""
         try:
             # 转换时间格式
@@ -334,7 +352,6 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             actual_time = self.format_datetime(row_data.get('actual_completion_time', ''))
 
             # 构建SQL值
-            serial_number = self.escape_sql_string(row_data.get('serial_number', ''))
             project_name = self.escape_sql_string(row_data.get('project_name', ''))
             problem_category = self.escape_sql_string(row_data.get('problem_category', ''))
             problem_description = self.escape_sql_string(row_data.get('problem_description', ''))
@@ -348,13 +365,12 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             sql_query = f"""
                 USE {DB_CONFIG['database']};
                 INSERT INTO issues (
-                    serial_number, project_name, problem_category, severity_level,
+                    project_name, problem_category, severity_level,
                     problem_description, solution, action_priority, action_record,
                     initiator, responsible_person, status, start_time,
                     target_completion_time, actual_completion_time, remarks,
-                    operation_type, data_hash, sync_status
+                    operation_type, sync_status
                 ) VALUES (
-                    '{serial_number}',
                     '{project_name}',
                     '{problem_category}',
                     {self.safe_convert_int(row_data.get('severity_level', 0))},
@@ -370,7 +386,6 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                     {f"'{actual_time}'" if actual_time else 'NULL'},
                     '{remarks}',
                     'insert',
-                    '{data_hash}',
                     'pending'
                 );
                 SELECT LAST_INSERT_ID();
@@ -395,7 +410,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             logger.error(f"插入议题失败: {e}")
             return None
 
-    def update_issue(self, issue_id: int, row_data: Dict[str, Any], data_hash: str) -> bool:
+    def update_issue(self, issue_id: int, row_data: Dict[str, Any]) -> bool:
         """更新现有议题"""
         try:
             # 转换时间格式
@@ -430,7 +445,6 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
                     actual_completion_time = {f"'{actual_time}'" if actual_time else 'NULL'},
                     remarks = '{remarks}',
                     operation_type = 'update',
-                    data_hash = '{data_hash}',
                     sync_status = 'pending',
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = {issue_id};
@@ -526,7 +540,7 @@ class EnhancedWPSAPIHandler(BaseHTTPRequestHandler):
             sql_query = f"""
                 USE {DB_CONFIG['database']};
                 SELECT
-                    id, serial_number, project_name, problem_category,
+                    id, project_name, problem_category,
                     severity_level, problem_description, status,
                     sync_status, gitlab_url, gitlab_progress,
                     created_at, updated_at
