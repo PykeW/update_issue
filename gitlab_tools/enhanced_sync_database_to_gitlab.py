@@ -159,11 +159,11 @@ def get_database_issues() -> List[Dict[str, Any]]:
                 action_priority, action_record, initiator,
                 responsible_person, status, start_time,
                 target_completion_time, actual_completion_time,
-                remarks, gitlab_url, gitlab_id, gitlab_labels,
-                sync_status, last_sync_time, gitlab_progress,
-                operation_type, data_hash
+                remarks, gitlab_url, sync_status, last_sync_time, gitlab_progress
             FROM issues
-            ORDER BY id;
+            WHERE (gitlab_url IS NULL OR gitlab_url = '') AND status = 'open' AND (sync_status IS NULL OR sync_status = 'pending' OR sync_status = 'failed')
+            ORDER BY id
+            LIMIT 20;
             """
         ]
 
@@ -475,8 +475,6 @@ def update_database_issue(issue_id: int, gitlab_issue: Dict[str, Any], operation
             USE {DB_CONFIG['database']};
             UPDATE issues SET
                 gitlab_url = '{gitlab_url}',
-                gitlab_id = {gitlab_id},
-                gitlab_labels = '{gitlab_labels}',
                 gitlab_progress = '{gitlab_progress}',
                 sync_status = 'synced',
                 last_sync_time = CURRENT_TIMESTAMP
@@ -524,10 +522,11 @@ def sync_issues_to_gitlab() -> bool:
     print("📋 获取数据库议题...")
     issues = get_database_issues()
     if not issues:
-        print("❌ 没有找到数据库议题")
-        return False
+        print("✅ 没有找到状态为open且需要同步的议题")
+        print("💡 提示：所有状态为open的议题都已经同步到GitLab了")
+        return True
 
-    print(f"✅ 找到 {len(issues)} 个数据库议题")
+    print(f"✅ 找到 {len(issues)} 个状态为open且需要同步的议题")
 
     # 统计信息
     stats = {
