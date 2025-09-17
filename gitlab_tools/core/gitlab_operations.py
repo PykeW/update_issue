@@ -6,8 +6,12 @@ GitLab操作核心模块
 """
 
 import re
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from datetime import datetime
+
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent))
 
 from gitlab_issue_manager import GitLabIssueManager, load_config
 
@@ -25,7 +29,7 @@ class GitLabOperations:
         )
         self.project_id = int(self.config['project_id'])
 
-    def extract_issue_iid_from_url(self, gitlab_url: str) -> Optional[int]:
+    def extract_issue_id_from_url(self, gitlab_url: str) -> Optional[int]:
         """
         从GitLab URL中提取议题的内部ID (iid)
         """
@@ -118,9 +122,41 @@ class GitLabOperations:
         return self.manager.get_issue(self.project_id, issue_iid)
 
     def create_issue(self, issue_data: Dict[str, Any], config: Dict[str, Any],
-                    user_mapping: Dict[str, str]) -> Optional[Dict[str, Any]]:
+                    user_mapping: Dict[str, str]) -> Dict[str, Any]:
         """
         创建GitLab议题
         """
-        from enhanced_sync_database_to_gitlab import create_gitlab_issue
-        return create_gitlab_issue(issue_data, self.manager, self.project_id, config, user_mapping)
+        try:
+            # 导入创建议题函数
+            from .enhanced_sync_database_to_gitlab import create_gitlab_issue
+
+            # 创建议题
+            gitlab_issue = create_gitlab_issue(issue_data, self.manager, self.project_id, config, user_mapping)
+
+            if gitlab_issue:
+                return {
+                    'success': True,
+                    'url': gitlab_issue.get('web_url', ''),
+                    'progress': self.get_issue_progress(gitlab_issue),
+                    'issue': gitlab_issue
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': '创建GitLab议题失败'
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def extract_progress_from_labels(self, labels: List[str]) -> str:
+        """
+        从标签列表中提取进度信息
+        """
+        for label in labels:
+            if label.startswith('进度::'):
+                return label
+        return '进度::To do'
+

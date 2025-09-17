@@ -59,13 +59,47 @@ chmod +x mysql_service.sh
 ./mysql_service.sh connect
 ```
 
-## 默认配置
+## 数据库配置
 
-- **Root 密码**: `NewRootPassword123!`
-- **数据库名**: `myapp_database`
-- **应用用户**: `app_user`
-- **应用密码**: `AppUserPassword123!`
+### 优雅的密码管理
+
+本项目使用密码管理器来安全地存储和管理数据库密码，避免在代码中硬编码敏感信息。
+
+#### 配置步骤：
+
+1. **初始化密码管理器**：
+   ```bash
+   cd gitlab_tools
+   python3 utils/database_config.py setup
+   ```
+
+2. **测试数据库连接**：
+   ```bash
+   python3 utils/database_config.py test --user issue
+   python3 utils/database_config.py test --user root
+   ```
+
+3. **管理密码**：
+   ```bash
+   # 存储密码
+   python3 utils/password_manager.py store --service database --username root
+
+   # 查看已存储的密码
+   python3 utils/password_manager.py list
+
+   # 删除密码
+   python3 utils/password_manager.py remove --service database --username root
+   ```
+
+#### 默认配置：
+
+- **数据库名**: `issue_database`
+- **应用用户**: `issue`
+- **Root用户**: `root`
 - **端口**: `3306`
+- **主机**: `localhost`
+
+> ⚠️ **安全提示**: 密码将通过系统密钥环或本地加密存储，不会出现在代码或配置文件中。
 
 ## 安全建议
 

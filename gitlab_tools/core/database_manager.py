@@ -181,3 +181,34 @@ class DatabaseManager:
         """
         results = self.execute_query(query)
         return results[0] if results else None
+
+    def update_issue(self, issue_id: int, **kwargs) -> bool:
+        """
+        更新议题信息
+        """
+        try:
+            # 构建更新字段
+            update_fields = []
+            for key, value in kwargs.items():
+                if value is not None:
+                    if isinstance(value, str):
+                        update_fields.append(f"{key} = '{value}'")
+                    else:
+                        update_fields.append(f"{key} = {value}")
+
+            if not update_fields:
+                return True
+
+            # 添加时间戳
+            update_fields.append("last_sync_time = NOW()")
+
+            query = f"""
+            UPDATE issues SET
+                {', '.join(update_fields)}
+            WHERE id = {issue_id};
+            """
+
+            return self.execute_update(query)
+        except Exception as e:
+            print(f"❌ 更新议题失败: {e}")
+            return False

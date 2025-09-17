@@ -51,6 +51,14 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+database.env
+*.env
+
+# 敏感配置文件
+.secrets
+.key
+*_secrets.json
+*_keys.json
 
 # 数据库文件
 *.db

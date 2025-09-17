@@ -7,6 +7,7 @@
 
 import os
 import subprocess
+import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
 
@@ -35,7 +36,7 @@ def backup_database() -> bool:
         print(f"❌ 数据库备份异常: {e}")
         return False
 
-def setup_logging(log_file: Optional[str] = None) -> None:
+def setup_logging(log_file: Optional[str] = None) -> logging.Logger:
     """
     设置日志配置
     """
@@ -45,16 +46,34 @@ def setup_logging(log_file: Optional[str] = None) -> None:
         log_file = '/root/update_issue/gitlab_tools/logs/sync.log'
 
     # 确保日志目录存在
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
+    # 创建logger
+    logger = logging.getLogger('auto_sync')
+    logger.setLevel(logging.INFO)
+
+    # 避免重复添加handler
+    if not logger.handlers:
+        # 创建文件handler
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.INFO)
+
+        # 创建控制台handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+
+        # 创建formatter
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+
+        # 添加handler
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+
+    return logger
 
 def print_stats(stats: Dict[str, int], title: str = "统计结果") -> None:
     """
