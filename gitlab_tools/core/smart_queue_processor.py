@@ -6,7 +6,7 @@
 """
 
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
@@ -51,9 +51,9 @@ class SmartQueueProcessor:
             WHERE id = %s AND status = 'pending'
         """
 
-        return self.db_manager.execute_update(query, (task_id,))
+        return self.db_manager.execute_update(query.format(task_id))
 
-    def mark_task_completed(self, task_id: int, result: Dict = None):
+    def mark_task_completed(self, task_id: int, result: Optional[Dict] = None):
         """标记任务为完成"""
         query = """
             UPDATE sync_queue
@@ -61,10 +61,10 @@ class SmartQueueProcessor:
             WHERE id = %s
         """
 
-        self.db_manager.execute_update(query, (task_id,))
+        self.db_manager.execute_update(query.format(task_id))
 
         # 记录统计信息
-        if result:
+        if result is not None:
             self._update_statistics(result)
 
     def mark_task_failed(self, task_id: int, error_message: str, retry: bool = True):
@@ -74,7 +74,7 @@ class SmartQueueProcessor:
             query = """
                 SELECT retry_count, max_retries FROM sync_queue WHERE id = %s
             """
-            result = self.db_manager.execute_query(query, (task_id,))
+            result = self.db_manager.execute_query(query.format(task_id))
 
             if result:
                 retry_count = result[0]['retry_count']
@@ -91,7 +91,7 @@ class SmartQueueProcessor:
                             error_message = %s
                         WHERE id = %s
                     """
-                    self.db_manager.execute_update(query, (retry_delay, error_message, task_id))
+                    self.db_manager.execute_update(query.format(retry_delay, error_message, task_id))
                     return
 
         # 标记为最终失败
@@ -102,7 +102,7 @@ class SmartQueueProcessor:
                 error_message = %s
             WHERE id = %s
         """
-        self.db_manager.execute_update(query, (error_message, task_id))
+        self.db_manager.execute_update(query.format(error_message, task_id))
 
     def process_single_task(self, task: Dict) -> Dict:
         """处理单个任务"""
@@ -145,10 +145,16 @@ class SmartQueueProcessor:
     def _create_gitlab_issue(self, issue_data: Dict, task_id: int) -> Dict:
         """创建GitLab议题"""
         try:
+            gitlab_config = self.config_manager.load_gitlab_config()
+            user_mapping = self.config_manager.load_user_mapping()
+
+            if not gitlab_config or not user_mapping:
+                raise Exception("无法加载GitLab配置或用户映射")
+
             result = self.gitlab_ops.create_issue(
                 issue_data,
-                self.config_manager.get_gitlab_config(),
-                self.config_manager.get_user_mapping()
+                gitlab_config,
+                user_mapping
             )
 
             if result and result.get('success', False):
@@ -180,7 +186,14 @@ class SmartQueueProcessor:
             if not gitlab_issue_id:
                 raise Exception("无法提取GitLab议题ID")
 
-            success = self.gitlab_ops.update_issue(gitlab_issue_id, issue_data)
+            # 更新议题 - 使用manager的update_issue方法
+            success = self.gitlab_ops.manager.update_issue(
+                self.gitlab_ops.project_id,
+                gitlab_issue_id,
+                title=issue_data.get('problem_description', ''),
+                description=issue_data.get('solution', ''),
+                labels=self._generate_labels(issue_data)
+            )
 
             if success:
                 return {
@@ -228,7 +241,7 @@ class SmartQueueProcessor:
                 raise Exception("无法提取GitLab议题ID")
 
             # 获取GitLab议题信息
-            gitlab_issue = self.gitlab_ops.manager.get_issue(gitlab_issue_id)
+            gitlab_issue = self.gitlab_ops.manager.get_issue(self.gitlab_ops.project_id, gitlab_issue_id)
             if not gitlab_issue:
                 raise Exception("无法获取GitLab议题信息")
 
@@ -267,7 +280,7 @@ class SmartQueueProcessor:
             success_count = 1 if success else 0
             failure_count = 0 if success else 1
 
-            self.db_manager.execute_update(query, (today, action, success_count, failure_count))
+            self.db_manager.execute_update(query.format(today, action, success_count, failure_count))
 
         except Exception as e:
             print(f"⚠️ 更新统计信息失败: {str(e)}")
@@ -348,11 +361,32 @@ class SmartQueueProcessor:
 
         return status_summary
 
+    def _generate_labels(self, issue_data: Dict) -> List[str]:
+        """生成议题标签"""
+        labels = []
+
+        # 添加严重程度标签
+        severity = issue_data.get('severity_level', '')
+        if severity:
+            labels.append(f"严重程度::{severity}")
+
+        # 添加状态标签
+        status = issue_data.get('status', '')
+        if status:
+            labels.append(f"状态::{status}")
+
+        # 添加问题分类标签
+        category = issue_data.get('problem_category', '')
+        if category:
+            labels.append(f"分类::{category}")
+
+        return labels
+
     def cleanup_old_tasks(self, days_to_keep: int = 30):
         """清理旧任务"""
         try:
             query = "CALL CleanupSyncData(%s)"
-            result = self.db_manager.execute_query(query, (days_to_keep,))
+            result = self.db_manager.execute_query(query.format(days_to_keep))
 
             if result:
                 print(f"✅ 清理完成，保留 {days_to_keep} 天的数据")

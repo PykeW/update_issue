@@ -9,7 +9,7 @@ import sys
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent.parent
@@ -274,7 +274,7 @@ class SystemMonitor:
 
         return report
 
-    def log_system_event(self, event_type: str, message: str, data: Dict = None):
+    def log_system_event(self, event_type: str, message: str, data: Optional[Dict] = None):
         """记录系统事件"""
         # 这里可以添加事件记录逻辑
         self.logger.info(f"系统事件: {event_type} - {message}")

@@ -6,7 +6,6 @@
 """
 
 import sys
-import os
 from pathlib import Path
 
 # 添加项目路径
@@ -20,15 +19,15 @@ from gitlab_tools.scripts.optimized_auto_sync import OptimizedAutoSync
 
 def main():
     print("📊 检查系统状态...")
-    
+
     sync = OptimizedAutoSync()
     status = sync.get_system_status()
-    
+
     print("📋 系统状态:")
     print(f"  队列状态: {status.get('queue_status', {})}")
     print(f"  数据库统计: {status.get('database_stats', {})}")
     print(f"  同步统计: {status.get('sync_statistics', {})}")
-    
+
     return True
 
 if __name__ == "__main__":

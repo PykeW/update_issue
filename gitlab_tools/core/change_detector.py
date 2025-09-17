@@ -131,14 +131,14 @@ class ChangeDetector:
 
         return False, ''
 
-    def add_to_sync_queue(self, issue_id: int, action: str, priority: int = 5, metadata: Dict = None):
+    def add_to_sync_queue(self, issue_id: int, action: str, priority: int = 5, metadata: Optional[Dict] = None):
         """添加任务到同步队列"""
         try:
             # 使用存储过程添加任务
             query = "CALL AddToSyncQueue(%s, %s, %s, %s)"
-            metadata_json = json.dumps(metadata or {})
+            metadata_json = json.dumps(metadata if metadata is not None else {})
 
-            result = self.db_manager.execute_query(query, (issue_id, action, priority, metadata_json))
+            result = self.db_manager.execute_query(query.format(issue_id, action, priority, metadata_json))
 
             if result:
                 queue_id = result[0].get('queue_id', 0)
