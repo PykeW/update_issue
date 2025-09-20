@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-增强版数据库到GitLab同步工具
-支持进度跟踪和智能更新
+优化版议题创建器
+支持多人指派、智能映射、错误处理
 """
 
 import os
 import json
 import requests
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
+from datetime import datetime
 
 def load_user_mapping() -> Dict[str, Any]:
-    """
-    加载用户映射配置
-    """
+    """加载用户映射配置"""
     try:
         mapping_file = os.path.join(os.path.dirname(__file__), '..', 'config', 'user_mapping.json')
         if os.path.exists(mapping_file):
@@ -31,6 +30,27 @@ def load_user_mapping() -> Dict[str, Any]:
             'user_mapping': {},
             'default_assignee': 'kohill'
         }
+
+def get_user_id_by_username(manager, username: str) -> Optional[int]:
+    """根据用户名获取GitLab用户ID"""
+    try:
+        url = f"{manager.gitlab_url}/api/v4/users"
+        params = {'username': username}
+        response = requests.get(url, headers=manager.headers, params=params)
+
+        if response.status_code == 200:
+            users = response.json()
+            if users:
+                return users[0]['id']
+            else:
+                print(f"❌ 未找到GitLab用户: {username}")
+                return None
+        else:
+            print(f"❌ 获取GitLab用户 '{username}' 失败: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"❌ 获取用户 '{username}' ID异常: {e}")
+        return None
 
 def find_user_mapping(name: str, user_mapping: Dict[str, str]) -> Optional[str]:
     """智能查找用户映射"""
@@ -55,12 +75,14 @@ def find_user_mapping(name: str, user_mapping: Dict[str, str]) -> Optional[str]:
 
     return None
 
-def get_assignee_ids(manager, responsible_person: str, user_mapping: Dict[str, str]) -> Optional[List[int]]:
+def get_assignee_ids_optimized(manager, responsible_person: str, user_mapping: Dict[str, str]) -> Tuple[List[int], List[str]]:
     """
-    优化版获取指派人ID列表（支持多人指派）
+    优化版获取指派人ID列表
+    返回: (assignee_ids, 未找到映射的用户列表)
     """
     try:
         assignee_ids = []
+        not_found_users = []
 
         # 检查是否包含分隔符（支持多种分隔符）
         separators = ['/', '、', ',', '，', ';', '；']
@@ -87,8 +109,10 @@ def get_assignee_ids(manager, responsible_person: str, user_mapping: Dict[str, s
                     print(f"✅ 责任人 '{person}' → GitLab用户 '{gitlab_username}' (ID: {user_id})")
                 else:
                     print(f"❌ 无法获取GitLab用户 '{gitlab_username}' 的ID")
+                    not_found_users.append(person)
             else:
                 print(f"⚠️  未找到责任人 '{person}' 的映射")
+                not_found_users.append(person)
 
         # 如果没有找到任何指派人，使用默认指派人
         if not assignee_ids:
@@ -101,39 +125,14 @@ def get_assignee_ids(manager, responsible_person: str, user_mapping: Dict[str, s
             else:
                 print(f"❌ 无法获取默认指派人 '{default_username}' 的ID")
 
-        return assignee_ids if assignee_ids else None
+        return assignee_ids, not_found_users
 
     except Exception as e:
         print(f"❌ 获取指派人ID异常: {e}")
-        return None
-
-def get_user_id_by_username(manager, username: str) -> Optional[int]:
-    """
-    根据用户名获取GitLab用户ID
-    """
-    try:
-        url = f"{manager.gitlab_url}/api/v4/users"
-        params = {'username': username}
-        response = requests.get(url, headers=manager.headers, params=params)
-
-        if response.status_code == 200:
-            users = response.json()
-            if users:
-                return users[0]['id']
-            else:
-                print(f"❌ 未找到GitLab用户: {username}")
-                return None
-        else:
-            print(f"❌ 获取GitLab用户 '{username}' 失败: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"❌ 获取用户 '{username}' ID异常: {e}")
-        return None
+        return [], [responsible_person]
 
 def load_gitlab_config() -> Dict[str, Any]:
-    """
-    加载GitLab配置
-    """
+    """加载GitLab配置"""
     config_file = os.path.join(os.path.dirname(__file__), '..', 'config', 'wps_gitlab_config.json')
     if os.path.exists(config_file):
         try:
@@ -144,9 +143,7 @@ def load_gitlab_config() -> Dict[str, Any]:
     return {}
 
 def map_severity_to_labels(severity_level: int, config: Dict[str, Any]) -> List[str]:
-    """
-    将严重程度映射到GitLab标签
-    """
+    """将严重程度映射到GitLab标签"""
     if not config or 'labels' not in config or 'severity_mapping' not in config['labels']:
         return []
 
@@ -158,9 +155,7 @@ def map_severity_to_labels(severity_level: int, config: Dict[str, Any]) -> List[
     return []
 
 def map_status_to_progress(status: str, config: Dict[str, Any]) -> str:
-    """
-    将状态映射到GitLab进度标签
-    """
+    """将状态映射到GitLab进度标签"""
     if not config or 'labels' not in config or 'progress_mapping' not in config['labels']:
         return '进度::To do'
 
@@ -171,9 +166,7 @@ def map_status_to_progress(status: str, config: Dict[str, Any]) -> str:
     return '进度::To do'
 
 def get_issue_type_label(problem_description: str, config: Dict[str, Any]) -> str:
-    """
-    根据问题描述智能识别议题类型
-    """
+    """根据问题描述智能识别议题类型"""
     if not config or 'labels' not in config or 'issue_type_mapping' not in config['labels']:
         return '议题类型::功能优化'
 
@@ -188,9 +181,10 @@ def get_issue_type_label(problem_description: str, config: Dict[str, Any]) -> st
 
     return '议题类型::功能优化'
 
-def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, config: Dict[str, Any], user_mapping: Dict[str, str]) -> Optional[Dict[str, Any]]:
+def create_optimized_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int,
+                                config: Dict[str, Any], user_mapping: Dict[str, str]) -> Dict[str, Any]:
     """
-    在GitLab中创建议题
+    优化版创建GitLab议题
     """
     try:
         # 构建议题标题
@@ -205,7 +199,15 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, co
 
         # 构建议题描述
         initiator = issue_data.get('initiator', '')
-        description = f"## 提出人: {initiator}" if initiator else ""
+        responsible_person = issue_data.get('responsible_person', '')
+
+        description_parts = []
+        if initiator:
+            description_parts.append(f"## 提出人: {initiator}")
+        if responsible_person:
+            description_parts.append(f"## 责任人: {responsible_person}")
+
+        description = "\n".join(description_parts) if description_parts else ""
 
         # 构建详细信息
         details = f"""
@@ -222,7 +224,7 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, co
 {issue_data.get('remarks', '')}
 
 ---
-*此议题由WPS数据同步系统自动创建*
+*此议题由WPS数据同步系统自动创建 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
         """.strip()
 
         # 合并描述
@@ -233,7 +235,7 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, co
         )
 
         # 构建标签
-        labels: List[str] = []
+        labels = []
 
         # 严重程度标签
         severity_labels = map_severity_to_labels(issue_data.get('severity_level', 0), config)
@@ -252,10 +254,12 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, co
         labels.append(issue_type_label)
 
         # 获取指派人ID
-        assignee_ids = None
-        responsible_person = issue_data.get('responsible_person', '')
-        if responsible_person:
-            assignee_ids = get_assignee_ids(manager, responsible_person, user_mapping)
+        assignee_ids, not_found_users = get_assignee_ids_optimized(manager, responsible_person, user_mapping)
+
+        # 如果有未找到映射的用户，在描述中添加说明
+        if not_found_users:
+            not_found_info = f"\n\n⚠️ 以下责任人未找到GitLab用户映射: {', '.join(not_found_users)}"
+            full_description += not_found_info
 
         # 创建GitLab议题
         gitlab_issue = manager.create_issue(
@@ -267,11 +271,64 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, co
         )
 
         if gitlab_issue:
-            return gitlab_issue
+            return {
+                'success': True,
+                'issue': gitlab_issue,
+                'assignee_count': len(assignee_ids),
+                'not_found_users': not_found_users
+            }
         else:
-            print(f"❌ 创建GitLab议题失败: {title}")
-            return None
+            return {
+                'success': False,
+                'error': '创建GitLab议题失败',
+                'assignee_count': 0,
+                'not_found_users': not_found_users
+            }
 
     except Exception as e:
-        print(f"❌ 创建GitLab议题异常: {e}")
-        return None
+        return {
+            'success': False,
+            'error': f'创建GitLab议题异常: {str(e)}',
+            'assignee_count': 0,
+            'not_found_users': []
+        }
+
+def test_issue_creation():
+    """测试议题创建功能"""
+    print("🧪 测试议题创建功能...")
+
+    # 模拟议题数据
+    test_issue = {
+        'id': 9999,
+        'project_name': '测试项目',
+        'problem_description': '测试问题描述',
+        'initiator': '测试发起人',
+        'responsible_person': '苏岚/张超',
+        'severity_level': 2,
+        'status': 'open',
+        'solution': '测试解决方案',
+        'action_record': '测试行动记录',
+        'remarks': '测试备注'
+    }
+
+    # 加载配置
+    user_mapping = load_user_mapping()
+
+    print(f"📋 测试议题: {test_issue['project_name']}")
+    print(f"👥 责任人: {test_issue['responsible_person']}")
+    print(f"📊 用户映射表: {list(user_mapping['user_mapping'].keys())}")
+
+    # 测试指派人获取
+    class MockManager:
+        def __init__(self):
+            self.gitlab_url = "https://dev.heils.cn"
+            self.headers = {}
+
+    mock_manager = MockManager()
+    assignee_ids, not_found = get_assignee_ids_optimized(mock_manager, test_issue['responsible_person'], user_mapping['user_mapping'])
+
+    print(f"✅ 找到指派人ID: {assignee_ids}")
+    print(f"⚠️ 未找到映射: {not_found}")
+
+if __name__ == "__main__":
+    test_issue_creation()
