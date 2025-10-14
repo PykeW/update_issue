@@ -61,56 +61,85 @@ class ChangeDetector:
 
     def detect_changes(self, since: Optional[datetime] = None) -> List[ChangeEvent]:
         """检测数据库变更"""
-        if since is None:
-            since = datetime.now() - timedelta(minutes=5)
-
         changes = []
 
-        # 查询最近修改的议题
-        query = """
+        # 首先检查pending状态的议题（这些需要立即同步）
+        pending_query = """
             SELECT id, project_name, problem_description, status, responsible_person,
                    severity_level, problem_category, gitlab_url, updated_at
             FROM issues
-            WHERE updated_at > %s
-            ORDER BY updated_at ASC
+            WHERE (gitlab_url IS NULL OR gitlab_url = '')
+            AND status = 'open'
+            AND (sync_status IS NULL OR sync_status = 'pending' OR sync_status = 'failed')
+            ORDER BY id ASC
+            LIMIT 50
         """
 
-        recent_issues = self.db_manager.execute_query(query.replace('%s', f"'{since}'"))
+        pending_issues = self.db_manager.execute_query(pending_query)
 
-        for issue in recent_issues:
+        # 处理pending议题
+        for issue in pending_issues:
             issue_id = issue['id']
             current_hash = self.calculate_hash(issue)
 
-            # 检查是否有变更
-            if issue_id in self.change_cache:
-                old_hash = self.change_cache[issue_id]
-                if old_hash != current_hash:
-                    # 检测到变更
+            change_event = ChangeEvent(
+                issue_id=issue_id,
+                change_type='PENDING_SYNC',
+                field_name='sync_status',
+                old_value='pending',
+                new_value='synced',
+                timestamp=issue['updated_at'],
+                hash_value=current_hash
+            )
+            changes.append(change_event)
+
+        # 如果指定了时间范围，也检查最近修改的议题
+        if since is not None:
+            # 查询最近修改的议题
+            query = """
+                SELECT id, project_name, problem_description, status, responsible_person,
+                       severity_level, problem_category, gitlab_url, updated_at
+                FROM issues
+                WHERE updated_at > %s
+                ORDER BY updated_at ASC
+            """
+
+            recent_issues = self.db_manager.execute_query(query.replace('%s', f"'{since}'"))
+
+            for issue in recent_issues:
+                issue_id = issue['id']
+                current_hash = self.calculate_hash(issue)
+
+                # 检查是否有变更
+                if issue_id in self.change_cache:
+                    old_hash = self.change_cache[issue_id]
+                    if old_hash != current_hash:
+                        # 检测到变更
+                        change_event = ChangeEvent(
+                            issue_id=issue_id,
+                            change_type='UPDATE',
+                            field_name='data_hash',
+                            old_value=old_hash,
+                            new_value=current_hash,
+                            timestamp=issue['updated_at'],
+                            hash_value=current_hash
+                        )
+                        changes.append(change_event)
+                else:
+                    # 新议题
                     change_event = ChangeEvent(
                         issue_id=issue_id,
-                        change_type='UPDATE',
+                        change_type='INSERT',
                         field_name='data_hash',
-                        old_value=old_hash,
+                        old_value=None,
                         new_value=current_hash,
                         timestamp=issue['updated_at'],
                         hash_value=current_hash
                     )
                     changes.append(change_event)
-            else:
-                # 新议题
-                change_event = ChangeEvent(
-                    issue_id=issue_id,
-                    change_type='INSERT',
-                    field_name='data_hash',
-                    old_value=None,
-                    new_value=current_hash,
-                    timestamp=issue['updated_at'],
-                    hash_value=current_hash
-                )
-                changes.append(change_event)
 
-            # 更新缓存
-            self.change_cache[issue_id] = current_hash
+                # 更新缓存
+                self.change_cache[issue_id] = current_hash
 
         return changes
 

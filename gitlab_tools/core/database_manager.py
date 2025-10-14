@@ -68,10 +68,16 @@ class DatabaseManager:
                 '-e', f"USE {self.config['database']}; {query}"
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return result.returncode == 0
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            # 检查返回码，0表示成功
+            # 忽略警告信息，只检查是否有真正的错误
+            if result.returncode == 0:
+                return True
+            else:
+                print(f"❌ 数据库更新失败: {result.stderr}")
+                return False
         except Exception as e:
-            print(f"❌ 数据库更新失败: {e}")
+            print(f"❌ 数据库更新异常: {e}")
             return False
 
     def get_issues_without_gitlab_url(self, limit: int = 20) -> List[Dict[str, Any]]:

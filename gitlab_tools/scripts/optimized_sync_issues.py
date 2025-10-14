@@ -6,10 +6,9 @@
 """
 
 import sys
-import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent.parent

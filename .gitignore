@@ -72,3 +72,6 @@ logs/
 # 系统文件
 .DS_Store
 Thumbs.db
+optimized_auto_sync
+gitlab_tools/optimized_sync
+auto_sync
