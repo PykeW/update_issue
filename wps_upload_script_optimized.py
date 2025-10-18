@@ -10,7 +10,6 @@ WPS表格上传脚本 - 优化版
 import requests
 import time
 from datetime import datetime
-from typing import Dict, List, Any
 
 # ==================== 配置信息 ====================
 CONFIG = {
@@ -237,10 +236,7 @@ def get_database_status():
             result = response.json()
             if result.get('success'):
                 data = result.get('data', {})
-                logger.info(f"数据库状态: 总议题 {data.get('total_issues', 0)}, "
-                          f"开放 {data.get('open_issues', 0)}, "
-                          f"关闭 {data.get('closed_issues', 0)}, "
-                          f"已同步 {data.get('synced_issues', 0)}")
+                logger.info(f"数据库状态: 总议题 {data.get('total_issues', 0)}, 开放 {data.get('open_issues', 0)}, 关闭 {data.get('closed_issues', 0)}, 已同步 {data.get('synced_issues', 0)}")
                 return True
             else:
                 logger.error(f"获取状态失败: {result.get('error', '未知错误')}")

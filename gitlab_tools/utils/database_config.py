@@ -8,7 +8,7 @@
 import os
 import sys
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional, Union
 sys.path.append(str(Path(__file__).parent))
 
 from password_manager import PasswordManager
@@ -16,12 +16,12 @@ from password_manager import PasswordManager
 class DatabaseConfig:
     """数据库配置管理器"""
 
-    def __init__(self, config_dir: str = None):
+    def __init__(self, config_dir: Optional[str] = None):
         self.config_dir = Path(config_dir) if config_dir else Path(__file__).parent.parent / "config"
         self.env_file = self.config_dir / "database.env"
-        self.password_manager = PasswordManager(self.config_dir)
+        self.password_manager = PasswordManager(str(self.config_dir))
 
-    def load_config(self) -> Dict[str, str]:
+    def load_config(self) -> Dict[str, Union[str, int]]:
         """加载数据库配置"""
         config = {}
 
@@ -46,13 +46,13 @@ class DatabaseConfig:
 
         return config
 
-    def get_database_config(self) -> Dict[str, str]:
+    def get_database_config(self) -> Dict[str, Union[str, int]]:
         """获取数据库连接配置"""
         config = self.load_config()
 
         # 获取密码
-        db_password = self._get_password('database', 'issue', config.get('db_password', ''))
-        root_password = self._get_password('database', 'root', config.get('root_password', ''))
+        db_password = self._get_password('database', 'issue', str(config.get('db_password', '')))
+        root_password = self._get_password('database', 'root', str(config.get('root_password', '')))
 
         return {
             'host': config.get('db_host', 'localhost'),

@@ -17,7 +17,7 @@ import base64
 class PasswordManager:
     """密码管理器"""
 
-    def __init__(self, config_dir: str = None):
+    def __init__(self, config_dir: Optional[str] = None):
         self.config_dir = Path(config_dir) if config_dir else Path(__file__).parent.parent / "config"
         self.secrets_file = self.config_dir / ".secrets"
         self.key_file = self.config_dir / ".key"
@@ -108,7 +108,7 @@ class PasswordManager:
         # 设置文件权限，只有所有者可读写
         os.chmod(self.secrets_file, 0o600)
 
-    def prompt_for_password(self, service: str, username: str, prompt: str = None) -> str:
+    def prompt_for_password(self, service: str, username: str, prompt: Optional[str] = None) -> str:
         """提示用户输入密码"""
         if prompt is None:
             prompt = f"请输入 {service} 的 {username} 密码: "
@@ -121,7 +121,7 @@ class PasswordManager:
 
         return password
 
-    def get_or_prompt_password(self, service: str, username: str, prompt: str = None) -> str:
+    def get_or_prompt_password(self, service: str, username: str, prompt: Optional[str] = None) -> str:
         """获取密码，如果不存在则提示输入"""
         password = self.get_password(service, username)
         if password:

@@ -9,12 +9,13 @@ import gzip
 import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Optional
 import logging
 
 class LogRotator:
     """日志轮转器"""
 
-    def __init__(self, log_dir: str = None, max_days: int = 30, max_size_mb: int = 100):
+    def __init__(self, log_dir: Optional[str] = None, max_days: int = 30, max_size_mb: int = 100):
         self.log_dir = Path(log_dir) if log_dir else Path(__file__).parent.parent / "logs"
         self.max_days = max_days
         self.max_size_mb = max_size_mb

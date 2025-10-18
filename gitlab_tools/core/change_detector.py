@@ -8,8 +8,8 @@
 import hashlib
 import json
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 
 import sys
@@ -143,7 +143,7 @@ class ChangeDetector:
 
         return changes
 
-    def should_sync_issue(self, issue_data: Dict[str, Any]) -> tuple[bool, str]:
+    def should_sync_issue(self, issue_data: Dict[str, Any]) -> Tuple[bool, str]:
         """判断议题是否需要同步"""
         status = issue_data.get('status', '')
         gitlab_url = issue_data.get('gitlab_url', '')
@@ -195,7 +195,7 @@ class ChangeDetector:
                 # 判断是否需要同步
                 should_sync, action = self.should_sync_issue(issue_data)
 
-                if should_sync:
+                if should_sync and action:  # 确保 action 不为空字符串
                     # 确定优先级
                     priority = self._determine_priority(issue_data, action)
 

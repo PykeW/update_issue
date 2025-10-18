@@ -5,7 +5,6 @@ WPS数据上传API服务
 接收WPS表格数据并保存到数据库
 """
 
-import json
 import sys
 from datetime import datetime
 from pathlib import Path

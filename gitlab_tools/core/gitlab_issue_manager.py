@@ -37,7 +37,7 @@ class GitLabIssueManager:
         if milestone_id:
             data['milestone_id'] = milestone_id
         if labels:
-            data['labels'] = ','.join(labels) if isinstance(labels, list) else labels
+            data['labels'] = ','.join(labels)
         if due_date:
             data['due_date'] = due_date
         if weight:
@@ -74,7 +74,7 @@ class GitLabIssueManager:
         if milestone_id:
             data['milestone_id'] = milestone_id
         if labels:
-            data['labels'] = ','.join(labels) if isinstance(labels, list) else labels
+            data['labels'] = ','.join(labels)
         if due_date:
             data['due_date'] = due_date
         if weight:

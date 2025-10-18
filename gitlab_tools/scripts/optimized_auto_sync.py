@@ -10,7 +10,7 @@ import time
 import argparse
 from pathlib import Path
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List, Any, Union
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent.parent
@@ -161,7 +161,7 @@ class OptimizedAutoSync:
         except Exception as e:
             return {'error': str(e)}
 
-    def _get_sync_statistics(self) -> Dict:
+    def _get_sync_statistics(self) -> Union[List[Dict[str, Any]], Dict[str, str]]:
         """获取同步统计"""
         try:
             query = """
@@ -198,12 +198,12 @@ class OptimizedAutoSync:
             self.queue_processor.cleanup_old_tasks(days_to_keep)
 
             # 清理变更日志
-            query = """
+            query = f"""
                 DELETE FROM issue_changes
-                WHERE change_timestamp < DATE_SUB(NOW(), INTERVAL %s DAY)
+                WHERE change_timestamp < DATE_SUB(NOW(), INTERVAL {days_to_keep} DAY)
                 AND processed = TRUE
             """
-            self.db_manager.execute_update(query, (days_to_keep,))
+            self.db_manager.execute_update(query)
 
             self.logger.info("✅ 系统清理完成")
 

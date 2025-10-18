@@ -1,77 +1,54 @@
 # Python
-*.pyc
-*.pyo
-*.pyd
 __pycache__/
+*.py[cod]
 *.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
+dist/
+build/
 
-# 测试文件
-test_*.py
-*_test.py
-test_*.sh
-*_test.sh
-test_*.json
-*_test.json
-test_*.log
-*_test.log
+# 虚拟环境
+venv/
+env/
+.venv/
+.env/
 
-# 临时文件
-*.tmp
-*.temp
-*.log
-*.bak
-*.backup
-*.old
-*.orig
-.DS_Store
-Thumbs.db
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 
-# 环境文件
+# 环境配置
 .env
-.env.local
-.env.*.local
-database.env
+.env.*
 *.env
-
-# 敏感配置文件
 .secrets
 .key
 *_secrets.json
 *_keys.json
+
+# 日志文件
+logs/
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
 
 # 数据库文件
 *.db
 *.sqlite
 *.sqlite3
 
-# 日志文件
-logs/
-*.log
-
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 项目特定
 optimized_auto_sync
 gitlab_tools/optimized_sync
 auto_sync
+update_issue.egg-info/
