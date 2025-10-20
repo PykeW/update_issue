@@ -14,6 +14,9 @@ sys.path.append(str(Path(__file__).parent))
 
 from src.gitlab.core.database_manager import DatabaseManager
 from src.gitlab.core.config_manager import ConfigManager
+from src.gitlab.services.manual_sync import (
+    process_pending_sync_queue as service_process_pending_sync_queue,
+)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -58,20 +61,26 @@ def sync_issue_to_gitlab(issue_id, action='create'):
 
         # 加载配置
         gitlab_config = config_manager.load_gitlab_config()
-        full_config = config_manager.load_full_config()
         user_mapping_config = config_manager.load_user_mapping()
         user_mapping = user_mapping_config.get('user_mapping', {}) if user_mapping_config else {}
 
         if not gitlab_config:
             return {'success': False, 'error': 'GitLab配置加载失败'}
+        # 明确收窄类型，确保类型检查通过
+        cfg = {
+            'gitlab_url': gitlab_config['gitlab_url'],
+            'private_token': gitlab_config['private_token'],
+            'project_id': gitlab_config['project_id'],
+            'project_path': gitlab_config.get('project_path', '')
+        }
 
         if action == 'create':
             # 创建新议题
             print(f"📝 创建 GitLab 议题: {issue_data.get('project_name')}")
-            result = gitlab_ops.create_issue(issue_data, full_config, user_mapping)
+            create_result = gitlab_ops.create_issue(issue_data, cfg, user_mapping)
 
-            if result and result.get('success'):
-                gitlab_url = result.get('url', '')
+            if create_result and create_result.get('success'):
+                gitlab_url = create_result.get('url', '')
                 # 更新数据库中的 gitlab_url
                 update_sql = f"""
                 UPDATE issues
@@ -82,7 +91,7 @@ def sync_issue_to_gitlab(issue_id, action='create'):
                 print(f"✅ GitLab 议题创建成功: {gitlab_url}")
                 return {'success': True, 'gitlab_url': gitlab_url}
             else:
-                error_msg = result.get('error', '创建失败') if result else '创建失败'
+                error_msg = create_result.get('error', '创建失败') if create_result else '创建失败'
                 print(f"❌ GitLab 议题创建失败: {error_msg}")
                 return {'success': False, 'error': error_msg}
 
@@ -93,8 +102,8 @@ def sync_issue_to_gitlab(issue_id, action='create'):
                 print(f"🔒 关闭 GitLab 议题: {gitlab_url}")
                 issue_iid = gitlab_ops.extract_issue_id_from_url(gitlab_url)
                 if issue_iid:
-                    result = gitlab_ops.close_issue(issue_iid, issue_data)
-                    if result:
+                    close_ok = gitlab_ops.close_issue(issue_iid, issue_data)
+                    if close_ok:
                         # 更新同步状态
                         update_sql = f"""
                         UPDATE issues
@@ -117,193 +126,6 @@ def sync_issue_to_gitlab(issue_id, action='create'):
         error_msg = str(e)
         print(f"❌ GitLab 同步异常: {error_msg}")
         return {'success': False, 'error': error_msg}
-
-def process_pending_sync_queue(action_filter=None, limit=50):
-    """处理待同步队列中的任务"""
-    try:
-        print(f"🔄 开始处理待同步队列...")
-
-        # 构建查询条件
-        where_conditions = ["status = 'pending'"]
-        if action_filter:
-            where_conditions.append(f"action = '{action_filter}'")
-
-        where_clause = " AND ".join(where_conditions)
-
-        # 查询待处理任务
-        query = f"""
-        SELECT id, issue_id, action, priority, metadata, created_at
-        FROM sync_queue
-        WHERE {where_clause}
-        ORDER BY priority ASC, created_at ASC
-        LIMIT {limit}
-        """
-
-        pending_tasks = db_manager.execute_query(query)
-
-        if not pending_tasks:
-            print(f"✅ 没有待处理的同步任务")
-            return {
-                'processed': 0,
-                'success': 0,
-                'failed': 0,
-                'skipped': 0
-            }
-
-        print(f"📋 找到 {len(pending_tasks)} 个待处理任务")
-
-        processed_count = 0
-        success_count = 0
-        failed_count = 0
-        skipped_count = 0
-
-        for task in pending_tasks:
-            task_id = task['id']
-            issue_id = task['issue_id']
-            action = task['action']
-            # metadata = task.get('metadata', '{}')  # 暂时未使用
-
-            try:
-                # 1. 更新任务状态为 processing
-                update_task_sql = f"""
-                UPDATE sync_queue
-                SET status = 'processing', processed_at = NOW()
-                WHERE id = {task_id}
-                """
-                db_manager.execute_update(update_task_sql)
-
-                print(f"🔄 处理任务 {task_id}: 议题 {issue_id}, 操作 {action}")
-
-                # 2. 执行同步操作
-                if action == 'close':
-                    # 关闭议题
-                    result = sync_issue_to_gitlab(issue_id, action='close')
-                    if result.get('success'):
-                        # 更新任务状态为 completed
-                        complete_sql = f"""
-                        UPDATE sync_queue
-                        SET status = 'completed', processed_at = NOW()
-                        WHERE id = {task_id}
-                        """
-                        db_manager.execute_update(complete_sql)
-                        success_count += 1
-                        print(f"✅ 任务 {task_id} 完成: 议题 {issue_id} 已关闭")
-                    else:
-                        # 更新任务状态为 failed
-                        error_msg = result.get('error', '未知错误')
-                        fail_sql = f"""
-                        UPDATE sync_queue
-                        SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
-                        WHERE id = {task_id}
-                        """
-                        db_manager.execute_update(fail_sql)
-                        failed_count += 1
-                        print(f"❌ 任务 {task_id} 失败: {error_msg}")
-
-                elif action == 'create':
-                    # 创建议题
-                    result = sync_issue_to_gitlab(issue_id, action='create')
-                    if result.get('success'):
-                        complete_sql = f"""
-                        UPDATE sync_queue
-                        SET status = 'completed', processed_at = NOW()
-                        WHERE id = {task_id}
-                        """
-                        db_manager.execute_update(complete_sql)
-                        success_count += 1
-                        print(f"✅ 任务 {task_id} 完成: 议题 {issue_id} 已创建")
-                    else:
-                        error_msg = result.get('error', '未知错误')
-                        fail_sql = f"""
-                        UPDATE sync_queue
-                        SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
-                        WHERE id = {task_id}
-                        """
-                        db_manager.execute_update(fail_sql)
-                        failed_count += 1
-                        print(f"❌ 任务 {task_id} 失败: {error_msg}")
-
-                elif action == 'create_and_close':
-                    # 先创建再关闭
-                    create_result = sync_issue_to_gitlab(issue_id, action='create')
-                    if create_result.get('success'):
-                        close_result = sync_issue_to_gitlab(issue_id, action='close')
-                        if close_result.get('success'):
-                            complete_sql = f"""
-                            UPDATE sync_queue
-                            SET status = 'completed', processed_at = NOW()
-                            WHERE id = {task_id}
-                            """
-                            db_manager.execute_update(complete_sql)
-                            success_count += 1
-                            print(f"✅ 任务 {task_id} 完成: 议题 {issue_id} 已创建并关闭")
-                        else:
-                            error_msg = f"创建成功但关闭失败: {close_result.get('error', '未知错误')}"
-                            fail_sql = f"""
-                            UPDATE sync_queue
-                            SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
-                            WHERE id = {task_id}
-                            """
-                            db_manager.execute_update(fail_sql)
-                            failed_count += 1
-                            print(f"❌ 任务 {task_id} 失败: {error_msg}")
-                    else:
-                        error_msg = f"创建失败: {create_result.get('error', '未知错误')}"
-                        fail_sql = f"""
-                        UPDATE sync_queue
-                        SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
-                        WHERE id = {task_id}
-                        """
-                        db_manager.execute_update(fail_sql)
-                        failed_count += 1
-                        print(f"❌ 任务 {task_id} 失败: {error_msg}")
-
-                else:
-                    # 未知操作类型
-                    fail_sql = f"""
-                    UPDATE sync_queue
-                    SET status = 'failed', error_message = '未知操作类型: {action}', processed_at = NOW()
-                    WHERE id = {task_id}
-                    """
-                    db_manager.execute_update(fail_sql)
-                    skipped_count += 1
-                    print(f"⚠️ 任务 {task_id} 跳过: 未知操作类型 {action}")
-
-                processed_count += 1
-
-            except Exception as e:
-                # 处理异常
-                error_msg = str(e)
-                fail_sql = f"""
-                UPDATE sync_queue
-                SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
-                WHERE id = {task_id}
-                """
-                db_manager.execute_update(fail_sql)
-                failed_count += 1
-                processed_count += 1
-                print(f"❌ 任务 {task_id} 异常: {error_msg}")
-
-        result = {
-            'processed': processed_count,
-            'success': success_count,
-            'failed': failed_count,
-            'skipped': skipped_count
-        }
-
-        print(f"📊 队列处理完成: 处理 {processed_count} 个, 成功 {success_count} 个, 失败 {failed_count} 个, 跳过 {skipped_count} 个")
-
-        return result
-
-    except Exception as e:
-        print(f"❌ 队列处理异常: {str(e)}")
-        return {
-            'processed': 0,
-            'success': 0,
-            'failed': 0,
-            'skipped': 0,
-            'error': str(e)
-        }
 
 def check_duplicate_record(project_name, problem_description):
     """检查是否存在重复记录"""
@@ -703,7 +525,7 @@ def upload_wps_data():
 
         # 处理待同步队列
         print(f"🔄 开始处理待同步队列...")
-        queue_result = process_pending_sync_queue()
+        queue_result = service_process_pending_sync_queue(db_manager, config_manager)
         print(f"📊 队列处理结果: 处理 {queue_result['processed']} 个, 成功 {queue_result['success']} 个, 失败 {queue_result['failed']} 个")
 
         # 返回结果

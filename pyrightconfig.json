@@ -87,7 +87,6 @@
   "reportMatchNotExhaustive": "warning",
   "reportShadowedImports": "warning",
   "reportUnusedCallResult": "none",
-  "reportUnnecessaryTypeIgnoreComment": "warning",
   "reportImplicitOverride": "warning",
   "reportArgumentType": "warning",
   "reportAssignmentType": "warning",
