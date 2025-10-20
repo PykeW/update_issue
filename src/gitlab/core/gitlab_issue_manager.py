@@ -157,7 +157,7 @@ def load_config() -> Optional[Dict[str, Any]]:
     """
     # 尝试从gitlab.env文件读取配置
     config: Dict[str, str] = {}
-    env_file = os.path.join(os.path.dirname(__file__), '..', 'config', 'gitlab.env')
+    env_file = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'config', 'gitlab.env')
 
     if os.path.exists(env_file):
         print("✅ 从 gitlab.env 文件加载配置")

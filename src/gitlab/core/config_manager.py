@@ -14,7 +14,10 @@ class ConfigManager:
 
     def __init__(self, base_path: Optional[str] = None):
         if base_path is None:
-            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # 从当前文件位置向上找到项目根目录
+            current_file = os.path.abspath(__file__)
+            # src/gitlab/core/config_manager.py -> 项目根目录
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
         self.base_path = base_path
 
     def load_gitlab_config(self) -> Optional[Dict[str, Any]]:
@@ -24,7 +27,18 @@ class ConfigManager:
         try:
             config_path = os.path.join(self.base_path, 'config', 'wps_gitlab_config.json')
             with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                full_config = json.load(f)
+                # 提取gitlab配置部分
+                gitlab_config = full_config.get('gitlab', {})
+                if gitlab_config:
+                    # 重命名字段以匹配期望的格式
+                    return {
+                        'gitlab_url': gitlab_config.get('url'),
+                        'private_token': gitlab_config.get('token'),
+                        'project_id': gitlab_config.get('project_id'),
+                        'project_path': gitlab_config.get('project_path')
+                    }
+                return None
         except Exception as e:
             print(f"❌ 加载GitLab配置失败: {e}")
             return None
