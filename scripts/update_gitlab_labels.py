@@ -6,7 +6,6 @@
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Add project root to Python path
@@ -15,7 +14,6 @@ sys.path.append(str(project_root))
 
 from src.gitlab.core.database_manager import DatabaseManager
 from src.gitlab.core.gitlab_issue_manager import GitLabIssueManager, load_config
-from src.gitlab.core.enhanced_sync_database_to_gitlab import map_severity_to_labels, get_issue_type_label
 
 def update_issue_labels():
     """更新议题标签"""

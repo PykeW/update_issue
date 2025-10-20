@@ -32,7 +32,8 @@
         "./src/gitlab/core",
         "./src/gitlab/services",
         "./src/utils",
-        "./src/api"
+        "./src/api",
+        "./stubs"
       ]
     }
   ],
@@ -43,6 +44,7 @@
   "indexing": true,
   "reportMissingImports": "warning",
   "reportMissingTypeStubs": "none",
+  "typeStubPath": "./stubs",
   "reportImportCycles": "warning",
   "reportUnusedImport": "warning",
   "reportUnusedClass": "warning",

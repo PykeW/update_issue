@@ -9,11 +9,7 @@ import re
 from typing import Dict, Optional, Any, List
 from datetime import datetime
 
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent))
-
-from gitlab_issue_manager import GitLabIssueManager, load_config
+from src.gitlab.core.gitlab_issue_manager import GitLabIssueManager, load_config
 
 class GitLabOperations:
     """GitLab操作管理器"""
@@ -47,8 +43,8 @@ class GitLabOperations:
 
             # 查找进度标签
             for label in labels:
-                if label.startswith('进度::'):
-                    return label
+                if str(label).startswith('进度::'):
+                    return str(label)
 
             # 根据状态推断进度
             state = gitlab_issue.get('state', 'opened')
@@ -56,9 +52,10 @@ class GitLabOperations:
                 'closed': '进度::Done',
                 'opened': '进度::To do'
             }
-            return state_mapping.get(state, '进度::Doing')
+            return str(state_mapping.get(state, '进度::Doing'))
 
         except Exception:
+            # 确保函数返回值为 str，避免返回 Any 被类型检查标注
             return '进度::To do'
 
     def close_issue(self, issue_iid: int, issue_data: Dict[str, Any]) -> bool:

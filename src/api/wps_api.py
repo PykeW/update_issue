@@ -20,6 +20,7 @@ from src.gitlab.services.manual_sync import (
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from typing import Any, Dict
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -61,12 +62,13 @@ def sync_issue_to_gitlab(issue_id, action='create'):
 
         # 加载配置
         gitlab_config = config_manager.load_gitlab_config()
+        full_config = config_manager.load_full_config()
         user_mapping_config = config_manager.load_user_mapping()
         user_mapping = user_mapping_config.get('user_mapping', {}) if user_mapping_config else {}
 
         if not gitlab_config:
             return {'success': False, 'error': 'GitLab配置加载失败'}
-        # 明确收窄类型，确保类型检查通过
+        # 明确收窄类型（认证在 GitLabOperations 内部完成；full_config 携带标签映射等业务配置）
         cfg = {
             'gitlab_url': gitlab_config['gitlab_url'],
             'private_token': gitlab_config['private_token'],
@@ -77,7 +79,10 @@ def sync_issue_to_gitlab(issue_id, action='create'):
         if action == 'create':
             # 创建新议题
             print(f"📝 创建 GitLab 议题: {issue_data.get('project_name')}")
-            create_result = gitlab_ops.create_issue(issue_data, cfg, user_mapping)
+            # 传入 full_config 以便创建时使用 labels/mapping 等业务配置
+            # 明确保证传入 Dict[str, Any]，避免 Optional 导致的类型不兼容
+            effective_config: Dict[str, Any] = full_config or cfg
+            create_result = gitlab_ops.create_issue(issue_data, effective_config, user_mapping)
 
             if create_result and create_result.get('success'):
                 gitlab_url = create_result.get('url', '')

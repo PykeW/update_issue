@@ -44,6 +44,7 @@ def sync_issue_to_gitlab(db_manager, config_manager, issue_id, action='create'):
 
         # 加载配置
         gitlab_config = config_manager.load_gitlab_config()
+        full_config = config_manager.load_full_config()
         user_mapping_config = config_manager.load_user_mapping()
         user_mapping = user_mapping_config.get('user_mapping', {}) if user_mapping_config else {}
 
@@ -53,7 +54,9 @@ def sync_issue_to_gitlab(db_manager, config_manager, issue_id, action='create'):
         if action == 'create':
             # 创建新议题
             print(f"📝 创建 GitLab 议题: {issue_data.get('project_name')}")
-            result = gitlab_ops.create_issue(issue_data, gitlab_config, user_mapping)
+            # 使用完整配置以包含 labels 映射（严重程度/进度/类型等）
+            effective_config = full_config if full_config else gitlab_config
+            result = gitlab_ops.create_issue(issue_data, effective_config, user_mapping)
 
             if result and result.get('success'):
                 gitlab_url = result.get('url', '')

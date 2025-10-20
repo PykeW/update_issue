@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pyright: reportMissingTypeStubs=none
 """
 GitLab 议题管理工具
 支持创建、修改、关闭议题，以及标签管理
 """
 
 import os
-import requests
+from typing import cast
+import json
+import urllib.request
+import urllib.parse
+from urllib.error import URLError, HTTPError
 from typing import Dict, List, Optional, Any, Union
 
 class GitLabIssueManager:
@@ -44,14 +49,26 @@ class GitLabIssueManager:
             data['weight'] = weight
 
         try:
-            response = requests.post(api_url, headers=self.headers, json=data)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"❌ 创建议题时发生错误: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"响应状态码: {e.response.status_code}")
-                print(f"响应内容: {e.response.text}")
+            req = urllib.request.Request(api_url, method='POST')
+            for k, v in self.headers.items():
+                req.add_header(k, v)
+            body = json.dumps(data).encode('utf-8')
+            with urllib.request.urlopen(req, body, timeout=30) as resp:
+                resp_body = resp.read().decode('utf-8')
+                result = cast(Dict[str, Any], json.loads(resp_body))
+                return result
+        except HTTPError as e:
+            print(f"❌ 创建议题时发生错误: HTTP {e.code}")
+            try:
+                print(e.read().decode('utf-8'))
+            except Exception:
+                pass
+            return None
+        except URLError as e:
+            print(f"❌ 创建议题网络错误: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ 创建议题异常: {e}")
             return None
 
     def update_issue(self, project_id: int, issue_iid: int, title: Optional[str] = None,
@@ -83,14 +100,26 @@ class GitLabIssueManager:
             data['state_event'] = state_event
 
         try:
-            response = requests.put(api_url, headers=self.headers, json=data)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"❌ 更新议题时发生错误: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"响应状态码: {e.response.status_code}")
-                print(f"响应内容: {e.response.text}")
+            req = urllib.request.Request(api_url, method='PUT')
+            for k, v in self.headers.items():
+                req.add_header(k, v)
+            body = json.dumps(data).encode('utf-8')
+            with urllib.request.urlopen(req, body, timeout=30) as resp:
+                resp_body = resp.read().decode('utf-8')
+                result = cast(Dict[str, Any], json.loads(resp_body))
+                return result
+        except HTTPError as e:
+            print(f"❌ 更新议题时发生错误: HTTP {e.code}")
+            try:
+                print(e.read().decode('utf-8'))
+            except Exception:
+                pass
+            return None
+        except URLError as e:
+            print(f"❌ 更新议题网络错误: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ 更新议题异常: {e}")
             return None
 
     def close_issue(self, project_id: int, issue_iid: int) -> Optional[Dict[str, Any]]:
@@ -112,11 +141,21 @@ class GitLabIssueManager:
         api_url = f"{self.gitlab_url}/api/v4/projects/{project_id}/issues/{issue_iid}"
 
         try:
-            response = requests.get(api_url, headers=self.headers)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"❌ 获取议题详情时发生错误: {e}")
+            req = urllib.request.Request(api_url, method='GET')
+            for k, v in self.headers.items():
+                req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp_body = resp.read().decode('utf-8')
+                result = cast(Dict[str, Any], json.loads(resp_body))
+                return result
+        except HTTPError as e:
+            print(f"❌ 获取议题详情时发生错误: HTTP {e.code}")
+            return None
+        except URLError as e:
+            print(f"❌ 获取议题详情网络错误: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ 获取议题详情异常: {e}")
             return None
 
     def list_issues(self, project_id: int, state: str = 'opened', per_page: int = 20) -> Optional[List[Dict[str, Any]]]:
@@ -130,11 +169,22 @@ class GitLabIssueManager:
         }
 
         try:
-            response = requests.get(api_url, headers=self.headers, params=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"❌ 获取议题列表时发生错误: {e}")
+            url = api_url + '?' + urllib.parse.urlencode(params)
+            req = urllib.request.Request(url, method='GET')
+            for k, v in self.headers.items():
+                req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp_body = resp.read().decode('utf-8')
+                result = cast(List[Dict[str, Any]], json.loads(resp_body))
+                return result
+        except HTTPError as e:
+            print(f"❌ 获取议题列表时发生错误: HTTP {e.code}")
+            return None
+        except URLError as e:
+            print(f"❌ 获取议题列表网络错误: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ 获取议题列表异常: {e}")
             return None
 
     def get_project_info(self, project_id: int) -> Optional[Dict[str, Any]]:
@@ -144,19 +194,30 @@ class GitLabIssueManager:
         api_url = f"{self.gitlab_url}/api/v4/projects/{project_id}"
 
         try:
-            response = requests.get(api_url, headers=self.headers)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"❌ 获取项目信息时发生错误: {e}")
+            req = urllib.request.Request(api_url, method='GET')
+            for k, v in self.headers.items():
+                req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp_body = resp.read().decode('utf-8')
+                result = cast(Dict[str, Any], json.loads(resp_body))
+                return result
+        except HTTPError as e:
+            print(f"❌ 获取项目信息时发生错误: HTTP {e.code}")
+            return None
+        except URLError as e:
+            print(f"❌ 获取项目信息网络错误: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ 获取项目信息异常: {e}")
             return None
 
 def load_config() -> Optional[Dict[str, Any]]:
     """
-    从环境变量加载配置
+    加载 GitLab 配置，优先环境变量/ENV 文件；若缺失则回退到 wps_gitlab_config.json。
+    返回统一键名: gitlab_url/private_token/project_id/project_path
     """
-    # 尝试从gitlab.env文件读取配置
-    config: Dict[str, str] = {}
+    # 优先：gitlab.env 文件与系统环境变量
+    env_config: Dict[str, str] = {}
     env_file = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'config', 'gitlab.env')
 
     if os.path.exists(env_file):
@@ -167,28 +228,49 @@ def load_config() -> Optional[Dict[str, Any]]:
                     line = line.strip()
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
-                        config[key.strip()] = value.strip()
+                        env_config[key.strip()] = value.strip()
         except Exception as e:
             print(f"⚠️  读取配置文件失败: {e}")
     else:
-        print("⚠️  未找到环境配置文件，使用系统环境变量")
+        print("⚠️  未找到环境配置文件，将尝试使用 JSON 配置")
 
-    # 从环境变量获取配置
-    gitlab_url = os.getenv('GITLAB_URL', config.get('GITLAB_URL', ''))
-    private_token = os.getenv('GITLAB_PRIVATE_TOKEN', config.get('GITLAB_PRIVATE_TOKEN', ''))
-    project_id = os.getenv('GITLAB_PROJECT_ID', config.get('GITLAB_PROJECT_ID', ''))
-    project_path = os.getenv('GITLAB_PROJECT_PATH', config.get('GITLAB_PROJECT_PATH', ''))
+    gitlab_url = os.getenv('GITLAB_URL', env_config.get('GITLAB_URL', ''))
+    private_token = os.getenv('GITLAB_PRIVATE_TOKEN', env_config.get('GITLAB_PRIVATE_TOKEN', ''))
+    project_id = os.getenv('GITLAB_PROJECT_ID', env_config.get('GITLAB_PROJECT_ID', ''))
+    project_path = os.getenv('GITLAB_PROJECT_PATH', env_config.get('GITLAB_PROJECT_PATH', ''))
 
-    config.update({
+    collected: Dict[str, Any] = {
         'gitlab_url': gitlab_url,
         'private_token': private_token,
         'project_id': project_id,
         'project_path': project_path
-    })
+    }
 
-    missing: List[str] = [k for k, v in config.items() if not v]
-    if missing:
-        print(f"❌ 缺少必需配置: {', '.join(missing)}")
+    missing: List[str] = [k for k, v in collected.items() if not v]
+    if not missing:
+        return collected
+
+    # 回退：统一 JSON 配置（wps_gitlab_config.json）
+    try:
+        from .config_manager import ConfigManager
+        cfg_mgr = ConfigManager()
+        full = cfg_mgr.load_full_config()
+        if not full:
+            print("❌ 无法加载 JSON 配置 wps_gitlab_config.json")
+            return None
+        gitlab = full.get('gitlab', {})
+        fallback = {
+            'gitlab_url': gitlab.get('url', ''),
+            'private_token': gitlab.get('token', ''),
+            'project_id': str(gitlab.get('project_id', '')),
+            'project_path': gitlab.get('project_path', '')
+        }
+        missing_fb: List[str] = [k for k, v in fallback.items() if not v]
+        if missing_fb:
+            print(f"❌ 缺少必需配置: {', '.join(missing_fb)}")
+            return None
+        print("✅ 从 wps_gitlab_config.json 加载配置")
+        return fallback
+    except Exception as e:
+        print(f"❌ 加载 JSON 配置失败: {e}")
         return None
-
-    return config
