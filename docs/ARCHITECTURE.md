@@ -1,195 +1,132 @@
 # 项目架构文档
 
-## 📋 项目概述
+## 1. 概述
 
-议题同步系统（Issue Sync System）是一个用于同步 WPS 表格数据到 GitLab 的自动化系统。
+本项目旨在提供一个高效、可靠的GitLab议题同步解决方案，支持WPS数据上传、实时同步、队列处理和系统健康监控。通过模块化设计和清晰的职责划分，确保系统易于维护、扩展和协作。
 
-### 核心功能
-- WPS 数据上传和处理
-- GitLab 议题创建和状态同步
-- 队列化任务处理
-- 实时状态监控
+## 2. 核心组件
 
-## 🏗️ 目录结构
+### 2.1. API 服务 (`src/api/wps_api.py`)
+- **职责**: 接收WPS上传数据，进行数据校验、去重、插入/更新数据库。
+- **同步触发**: 在数据处理完成后，立即触发GitLab同步逻辑，并将失败任务加入同步队列。
+- **技术栈**: Flask
 
-```
-update_issue/
-├── src/                          # 源代码
-│   ├── api/                      # API 层
-│   │   ├── __init__.py
-│   │   └── wps_api.py           # WPS 数据上传 API
-│   ├── gitlab/                   # GitLab 同步核心
-│   │   ├── core/                # 核心功能模块
-│   │   │   ├── __init__.py
-│   │   │   ├── change_detector.py        # 变更检测
-│   │   │   ├── config_manager.py         # 配置管理
-│   │   │   ├── database_manager.py       # 数据库管理
-│   │   │   ├── gitlab_operations.py      # GitLab 操作
-│   │   │   ├── gitlab_issue_manager.py   # 议题管理
-│   │   │   └── smart_queue_processor.py  # 队列处理
-│   │   └── services/            # 业务服务
-│   │       ├── __init__.py
-│   │       ├── health_check.py          # 健康检查
-│   │       ├── log_rotation.py          # 日志轮转
-│   │       └── manual_sync.py           # 手动同步
-│   └── utils/                   # 工具模块
-│       ├── __init__.py
-│       ├── database_config.py          # 数据库配置
-│       ├── helpers.py                  # 辅助函数
-│       └── password_manager.py         # 密码管理
-├── scripts/                      # 可执行脚本
-│   ├── activate_venv.sh         # 虚拟环境激活
-│   ├── test_immediate_sync.py   # 同步测试
-│   └── wps_upload_script_optimized.py  # 上传脚本
-├── config/                       # 配置文件
-│   ├── gitlab.env              # GitLab 配置
-│   ├── database.env            # 数据库配置
-│   ├── user_mapping.json       # 用户映射
-│   └── wps_gitlab_config.json  # WPS-GitLab 配置
-├── docs/                         # 文档
-│   ├── ARCHITECTURE.md         # 架构文档 (本文件)
-│   └── README.md               # 使用说明
-├── tests/                        # 测试文件
-├── logs/                         # 日志文件
-├── venv/                         # 虚拟环境
-├── main.py                       # 统一命令行入口
-├── pyproject.toml               # 项目配置
-├── pyrightconfig.json           # 类型检查配置
-└── .gitignore                   # Git 忽略配置
-```
+### 2.2. GitLab 核心功能 (`src/gitlab/core/`)
+- **`gitlab_operations.py`**: 封装GitLab API的创建、更新、关闭议题、管理标签等操作。
+- **`database_manager.py`**: 提供数据库连接管理和CRUD操作的通用接口。
+- **`config_manager.py`**: 负责加载和管理GitLab、用户映射等配置。
+- **`gitlab_issue_manager.py`**: GitLab议题管理工具，支持创建、修改、关闭议题。
+- **`enhanced_sync_database_to_gitlab.py`**: 增强的数据库到GitLab同步功能。
 
-## 🔄 数据流
+### 2.3. 业务服务 (`src/gitlab/services/`)
+- **`manual_sync.py`**: 手动批量同步脚本，用于处理历史遗留或特定条件的同步队列任务。
+- **`health_check.py`**: 提供系统健康检查功能，验证数据库、GitLab连接和配置。
+- **`log_rotation.py`**: 日志轮转服务，管理日志文件大小和保留策略。
 
-### 1. WPS 数据上传流程
-```
-WPS 表格 → API 接收 → 数据验证 → 数据库存储 → GitLab 同步
-```
+### 2.4. 通用工具 (`src/utils/`)
+- **`helpers.py`**: 包含各种辅助函数，如日志设置、数据清理等。
+- **`password_manager.py`**: 安全地管理和检索敏感密码。
+- **`database_config.py`**: 数据库连接配置管理。
 
-### 2. GitLab 同步流程
-```
-数据库变更 → 立即同步 → 成功/失败
-                    ↓ (失败)
-                  同步队列 → 批量处理 → GitLab
-```
+### 2.5. 可执行脚本 (`scripts/`)
+- **`wps_upload_script_optimized.py`**: 模拟WPS数据上传的客户端脚本。
+- **`test_immediate_sync.py`**: 用于测试立即同步功能的脚本。
+- **`activate_venv.sh`**: 激活项目虚拟环境的便捷脚本。
+- **`check_services.sh`**: 服务检查脚本。
 
-### 3. 队列处理机制
-```
-pending → processing → completed/failed
-```
+### 2.6. 统一入口 (`main.py`)
+- **职责**: 提供一个统一的命令行接口，用于启动API、执行同步、运行测试和健康检查。
+- **命令**: `api`, `sync`, `test`, `health`
 
-## 🎯 核心模块说明
+### 2.7. 归档模块 (`src/archive/`)
+- **`auto_sync_manager.py`**: 自动同步管理器（已归档，未使用）
+- **`change_detector.py`**: 变更检测器（已归档，未使用）
+- **`optimized_issue_creator.py`**: 优化议题创建器（已归档，未使用）
+- **`progress_monitor.py`**: 进度监控器（已归档，未使用）
+- **`smart_queue_processor.py`**: 智能队列处理器（已归档，未使用）
 
-### API 层 (`src/api/`)
-- **wps_api.py**: Flask API 服务
-  - `/api/wps/upload`: 接收 WPS 数据上传
-  - `/api/database/status`: 数据库状态查询
-  - `/`: 健康检查端点
+## 3. 数据流与同步机制
 
-### GitLab 核心 (`src/gitlab/core/`)
-- **database_manager.py**: 数据库操作封装
-- **gitlab_operations.py**: GitLab API 封装
-- **config_manager.py**: 配置文件加载
-- **change_detector.py**: 数据变更检测
-- **gitlab_issue_manager.py**: 议题管理逻辑
+1. **WPS数据上传**: 客户端 (`scripts/wps_upload_script_optimized.py`) 通过HTTP POST请求将数据发送到API服务 (`src/api/wps_api.py`)。
+2. **API处理**:
+   - 接收数据，进行初步校验。
+   - 调用 `src/gitlab/core/database_manager.py` 进行数据库操作（去重、插入/更新）。
+   - **立即同步**: 如果数据状态需要同步到GitLab（例如，新创建或状态变为`closed`），则立即调用 `src/api/wps_api.py` 中的 `sync_issue_to_gitlab` 函数。
+   - **队列Fallback**: 如果立即同步失败，任务会被添加到 `sync_queue` 数据库表中。
+   - **队列处理**: 在API响应返回前，调用 `src/api/wps_api.py` 中的 `process_pending_sync_queue` 函数，处理当前所有待同步的队列任务。
+3. **GitLab交互**: `sync_issue_to_gitlab` 函数通过 `src/gitlab/core/gitlab_operations.py` 与GitLab API进行实际交互。
+4. **数据库更新**: GitLab同步成功后，数据库中的 `issues` 表的 `gitlab_url`、`sync_status` 和 `last_sync_time` 字段会被更新。
+5. **手动同步**: `src/gitlab/services/manual_sync.py` 脚本可以独立运行，用于批量处理 `sync_queue` 中的任务，或针对特定议题进行同步。
 
-### 业务服务 (`src/gitlab/services/`)
-- **manual_sync.py**: 手动批量同步工具
-- **health_check.py**: 系统健康检查
-- **log_rotation.py**: 日志文件管理
+## 4. 配置管理
 
-### 工具模块 (`src/utils/`)
-- **database_config.py**: 数据库配置管理
-- **password_manager.py**: 密码安全存储
-- **helpers.py**: 通用辅助函数
+- 所有配置文件集中在 `config/` 目录下。
+- `src/gitlab/core/config_manager.py` 负责加载这些配置。
+- 敏感信息（如GitLab Private Token）通过 `keyring` 和 `cryptography` 安全管理。
 
-## 🔐 配置管理
+## 5. 部署与运行
 
-### 配置文件层次
-1. **环境变量**: 最高优先级
-2. **config/*.env**: 环境配置文件
-3. **config/*.json**: JSON 配置文件
-4. **默认值**: 代码中的默认配置
+- **虚拟环境**: 推荐使用Python虚拟环境 (`venv`) 进行依赖管理。
+- **API启动**: `python main.py api start`
+- **手动同步**: `python main.py sync manual`
+- **健康检查**: `python main.py health`
 
-### 关键配置
-- `config/gitlab.env`: GitLab URL、Token、Project ID
-- `config/database.env`: 数据库连接信息
-- `config/user_mapping.json`: WPS 用户到 GitLab 用户的映射
+## 6. 优势
 
-## 🚀 部署架构
+- **实时性**: 关键同步操作在API请求处理过程中立即完成。
+- **可靠性**: 失败任务自动进入队列，并通过API请求后的队列处理机制进行重试。
+- **简化架构**: 移除了独立的后台轮询服务，减少了系统复杂性和资源消耗。
+- **可维护性**: 清晰的模块划分和统一的入口点，便于开发和维护。
+- **可扩展性**: 新功能可以轻松集成到现有模块或作为新服务添加。
 
-### 服务组件
-1. **API 服务**: Flask 应用 (端口 80)
-2. **数据库**: MySQL
-3. **GitLab**: 外部 GitLab 实例
+## 7. 代码结构优化
 
-### 数据流向
-```
-WPS客户端 → API服务 → MySQL数据库 ←→ GitLab
-```
+### 7.1. 导入路径标准化
+- 所有模块使用绝对导入路径（如 `from src.gitlab.core.database_manager import DatabaseManager`）
+- 移除了相对导入和动态路径添加
 
-## 🔧 技术栈
+### 7.2. 模块清理
+- 将未使用的模块移动到 `src/archive/` 目录
+- 保留核心功能模块，提高代码可维护性
 
-- **后端框架**: Flask
-- **数据库**: MySQL
-- **HTTP 客户端**: requests
-- **类型检查**: Basedpyright
-- **代码格式化**: Black
-- **虚拟环境**: Python venv
+### 7.3. 文件组织
+- 脚本文件统一放在 `scripts/` 目录
+- 配置文件集中在 `config/` 目录
+- 文档统一放在 `docs/` 目录
 
-## 📊 数据库设计
+## 8. 模块使用说明
 
-### issues 表
-- 存储议题信息
-- 主要字段: id, project_name, status, gitlab_url, sync_status
+### 8.1. 核心模块
+- **DatabaseManager**: 数据库操作的核心类，所有数据库交互都通过此类
+- **ConfigManager**: 配置管理类，负责加载各种配置文件
+- **GitLabOperations**: GitLab API操作类，处理所有GitLab相关操作
+- **GitLabIssueManager**: GitLab议题管理工具，提供议题CRUD操作
 
-### sync_queue 表
-- 同步任务队列
-- 主要字段: id, issue_id, action, status, priority
+### 8.2. 服务模块
+- **ManualSync**: 手动同步服务，用于批量处理同步队列
+- **HealthCheck**: 健康检查服务，验证系统各组件状态
+- **LogRotation**: 日志轮转服务，管理日志文件
 
-## 🛠️ 开发指南
+### 8.3. 工具模块
+- **PasswordManager**: 密码管理工具，安全存储和检索敏感信息
+- **DatabaseConfig**: 数据库配置工具，管理数据库连接配置
+- **Helpers**: 通用辅助函数集合
 
-### 添加新功能
-1. 在适当的模块中添加代码
-2. 更新相关导入
-3. 添加测试
-4. 更新文档
+## 9. 开发指南
 
-### 模块依赖规则
-- `api/` 可以依赖 `gitlab/` 和 `utils/`
-- `gitlab/services/` 可以依赖 `gitlab/core/` 和 `utils/`
-- `gitlab/core/` 可以依赖 `utils/`
-- `utils/` 不应依赖其他模块
+### 9.1. 添加新功能
+1. 确定功能属于哪个模块（core/services/utils）
+2. 使用绝对导入路径
+3. 添加适当的错误处理和日志记录
+4. 更新相关文档
 
-## 📝 最佳实践
+### 9.2. 代码规范
+- 使用类型提示
+- 遵循PEP 8代码风格
+- 添加适当的文档字符串
+- 保持函数和类的职责单一
 
-1. **导入路径**: 使用绝对导入 `from src.module import ...`
-2. **配置管理**: 通过 ConfigManager 加载配置
-3. **数据库操作**: 通过 DatabaseManager 执行
-4. **错误处理**: 使用 try-except 并记录日志
-5. **类型注解**: 为函数添加类型提示
-
-## 🔄 版本历史
-
-### v2.0.0 (2025-10-20) - 代码结构重构
-- 重组目录结构
-- 统一入口点 (main.py)
-- 集中配置文件
-- 改进模块化设计
-
-### v1.0.0 (2025-09-20) - 初始版本
-- 基础同步功能
-- API 服务
-- 队列处理机制
-
-## 🤝 贡献指南
-
-1. 创建功能分支
-2. 编写代码和测试
-3. 提交 Pull Request
-4. 代码审查
-5. 合并到主分支
-
-## 📞 联系方式
-
-如有问题，请联系开发团队或提交 Issue。
-
+### 9.3. 测试
+- 为核心功能添加单元测试
+- 使用集成测试验证模块间交互
+- 保持测试覆盖率在合理水平

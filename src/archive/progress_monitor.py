@@ -14,11 +14,12 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
-sys.path.append(str(Path(__file__).parent))
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.append(str(project_root))
 
-from database_manager import DatabaseManager
-from gitlab_operations import GitLabOperations
-from config_manager import ConfigManager
+from src.gitlab.core.database_manager import DatabaseManager
+from src.gitlab.core.gitlab_operations import GitLabOperations
+from src.gitlab.core.config_manager import ConfigManager
 
 @dataclass
 class ProgressChange:
