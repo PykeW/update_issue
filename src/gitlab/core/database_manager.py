@@ -5,8 +5,10 @@
 统一管理所有数据库相关操作
 """
 
-import subprocess
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, cast
+
+import mysql.connector
+from mysql.connector import Error as MySQLError
 
 # 数据库配置
 DB_CONFIG: Dict[str, Union[str, int]] = {
@@ -23,37 +25,35 @@ class DatabaseManager:
     def __init__(self):
         self.config = DB_CONFIG
 
+    def _connect(self):
+        return mysql.connector.connect(
+            host=str(self.config['host']),
+            port=int(self.config['port']),
+            user=str(self.config['user']),
+            password=str(self.config['password']),
+            database=str(self.config['database']),
+            autocommit=True,
+        )
+
     def execute_query(self, query: str) -> List[Dict[str, Any]]:
         """
         执行SQL查询并返回结果
         """
         try:
-            cmd: List[str] = [
-                'mysql', '-u', str(self.config['user']), f'-p{str(self.config["password"])}',
-                '-h', str(self.config['host']), '-P', str(self.config['port']),
-                '-e', f"USE {self.config['database']}; {query}"
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-            # 解析MySQL输出
-            lines = result.stdout.strip().split('\n')
-            if len(lines) < 2:
-                return []
-
-            # 获取列名
-            headers = lines[0].split('\t')
-            data: List[Dict[str, Any]] = []
-
-            # 解析数据行
-            for line in lines[1:]:
-                values = line.split('\t')
-                if len(values) == len(headers):
-                    row = dict(zip(headers, values))
-                    data.append(row)
-
-            return data
-        except Exception as e:
+            conn = self._connect()
+            try:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(query)
+                raw_rows = cursor.fetchall()
+                rows: List[Dict[str, Any]] = cast(List[Dict[str, Any]], raw_rows or [])
+                return rows
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+                conn.close()
+        except MySQLError as e:
             print(f"❌ 数据库查询失败: {e}")
             return []
 
@@ -62,21 +62,19 @@ class DatabaseManager:
         执行SQL更新操作
         """
         try:
-            cmd: List[str] = [
-                'mysql', '-u', str(self.config['user']), f'-p{str(self.config["password"])}',
-                '-h', str(self.config['host']), '-P', str(self.config['port']),
-                '-e', f"USE {self.config['database']}; {query}"
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            # 检查返回码，0表示成功
-            # 忽略警告信息，只检查是否有真正的错误
-            if result.returncode == 0:
+            conn = self._connect()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(query)
+                conn.commit()
                 return True
-            else:
-                print(f"❌ 数据库更新失败: {result.stderr}")
-                return False
-        except Exception as e:
+            finally:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+                conn.close()
+        except MySQLError as e:
             print(f"❌ 数据库更新异常: {e}")
             return False
 

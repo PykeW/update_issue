@@ -7,10 +7,12 @@
   "exclude": [
     "**/node_modules",
     "**/__pycache__",
-    "**/.*"
+    "**/.*",
+    "src/archive/**"
   ],
   "ignore": [
-    "**/.*"
+    "**/.*",
+    "src/archive/**"
   ],
   "defineConstant": {
     "DEBUG": true
