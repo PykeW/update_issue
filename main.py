@@ -49,7 +49,7 @@ def main():
                             help='测试类型 (默认: all)')
 
     # 健康检查命令
-    health_parser = subparsers.add_parser('health', help='健康检查')
+    subparsers.add_parser('health', help='健康检查')
 
     args = parser.parse_args()
 
