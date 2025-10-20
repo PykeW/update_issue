@@ -31,6 +31,92 @@ def clean_string_value(value):
         return ''
     return str(value).strip()
 
+def get_issue_by_id(issue_id):
+    """从数据库获取议题详细信息"""
+    try:
+        query = f"SELECT * FROM issues WHERE id = {issue_id}"
+        result = db_manager.execute_query(query)
+        return result[0] if result else None
+    except Exception as e:
+        print(f"❌ 获取议题详细信息失败: {str(e)}")
+        return None
+
+def sync_issue_to_gitlab(issue_id, action='create'):
+    """立即同步议题到 GitLab"""
+    try:
+        print(f"🔗 开始同步议题到 GitLab: ID={issue_id}, 操作={action}")
+
+        # 获取议题详细信息
+        issue_data = get_issue_by_id(issue_id)
+        if not issue_data:
+            return {'success': False, 'error': '议题不存在'}
+
+        # 初始化 GitLab 操作
+        from gitlab_tools.core.gitlab_operations import GitLabOperations
+
+        gitlab_ops = GitLabOperations()
+
+        # 加载配置
+        gitlab_config = config_manager.load_gitlab_config()
+        user_mapping_config = config_manager.load_user_mapping()
+        user_mapping = user_mapping_config.get('user_mapping', {}) if user_mapping_config else {}
+
+        if not gitlab_config:
+            return {'success': False, 'error': 'GitLab配置加载失败'}
+
+        if action == 'create':
+            # 创建新议题
+            print(f"📝 创建 GitLab 议题: {issue_data.get('project_name')}")
+            result = gitlab_ops.create_issue(issue_data, gitlab_config, user_mapping)
+
+            if result and result.get('success'):
+                gitlab_url = result.get('url', '')
+                # 更新数据库中的 gitlab_url
+                update_sql = f"""
+                UPDATE issues
+                SET gitlab_url = '{gitlab_url}', sync_status = 'synced', last_sync_time = NOW()
+                WHERE id = {issue_id}
+                """
+                db_manager.execute_update(update_sql)
+                print(f"✅ GitLab 议题创建成功: {gitlab_url}")
+                return {'success': True, 'gitlab_url': gitlab_url}
+            else:
+                error_msg = result.get('error', '创建失败') if result else '创建失败'
+                print(f"❌ GitLab 议题创建失败: {error_msg}")
+                return {'success': False, 'error': error_msg}
+
+        elif action == 'close':
+            # 关闭议题并移除标签
+            gitlab_url = issue_data.get('gitlab_url', '')
+            if gitlab_url and gitlab_url.upper() != 'NULL':
+                print(f"🔒 关闭 GitLab 议题: {gitlab_url}")
+                issue_iid = gitlab_ops.extract_issue_id_from_url(gitlab_url)
+                if issue_iid:
+                    result = gitlab_ops.close_issue(issue_iid, issue_data)
+                    if result:
+                        # 更新同步状态
+                        update_sql = f"""
+                        UPDATE issues
+                        SET sync_status = 'synced', last_sync_time = NOW()
+                        WHERE id = {issue_id}
+                        """
+                        db_manager.execute_update(update_sql)
+                        print(f"✅ GitLab 议题关闭成功")
+                        return {'success': True}
+                    else:
+                        return {'success': False, 'error': '关闭失败'}
+                else:
+                    return {'success': False, 'error': '无法提取议题ID'}
+            else:
+                return {'success': False, 'error': '没有有效的GitLab URL'}
+
+        return {'success': False, 'error': '未知操作'}
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ GitLab 同步异常: {error_msg}")
+        return {'success': False, 'error': error_msg}
+
 def check_duplicate_record(project_name, problem_description):
     """检查是否存在重复记录"""
     try:
@@ -101,24 +187,37 @@ def update_issue_status(issue_id, new_status, record, gitlab_url=None):
         if result:
             print(f"✅ 议题状态更新成功: ID={issue_id}, 状态={new_status}")
 
-            # 如果状态为 closed，处理 GitLab 议题
+            # 如果状态为 closed，立即同步到 GitLab
             if new_status == 'closed':
-                print(f"🔗 状态已关闭，处理 GitLab 议题")
+                print(f"🔗 状态已关闭，立即同步到 GitLab")
 
                 # 检查是否已有 GitLab URL（排除 NULL 和空字符串）
                 if gitlab_url and gitlab_url.strip() and gitlab_url.strip().upper() != 'NULL':
                     print(f"✅ 检测到现有 GitLab URL: {gitlab_url}")
-                    # 已有议题，直接添加到关闭队列
-                    queue_sql = f"""
-                    INSERT INTO sync_queue (issue_id, action, priority, metadata, status)
-                    VALUES (
-                        {issue_id},
-                        'close',
-                        2,
-                        '{{"remove_labels": ["进度::done"]}}',
-                        'pending'
-                    )
-                    """
+                    # 已有议题，立即关闭
+                    gitlab_result = sync_issue_to_gitlab(issue_id, action='close')
+                    if gitlab_result.get('success'):
+                        print(f"✅ GitLab 议题已关闭")
+                        return True, "状态更新成功并已关闭GitLab议题"
+                    else:
+                        error_msg = gitlab_result.get('error', '未知错误')
+                        print(f"⚠️ GitLab 议题关闭失败: {error_msg}，添加到同步队列")
+                        # 失败时添加到队列
+                        queue_sql = f"""
+                        INSERT INTO sync_queue (issue_id, action, priority, metadata, status)
+                        VALUES (
+                            {issue_id},
+                            'close',
+                            3,
+                            '{{"remove_labels": ["进度::done"], "error": "{error_msg}"}}',
+                            'pending'
+                        )
+                        """
+                        try:
+                            db_manager.execute_update(queue_sql)
+                            print(f"✅ 已添加到同步队列，稍后重试")
+                        except Exception as queue_error:
+                            print(f"❌ 添加同步队列失败: {str(queue_error)}")
                 else:
                     # 检查记录的创建时间，只为 2025年10月及之后的记录创建议题
                     from datetime import datetime
@@ -134,38 +233,42 @@ def update_issue_status(issue_id, new_status, record, gitlab_url=None):
                             created_at = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S')
 
                         if created_at and created_at >= cutoff_date:
-                            print(f"🆕 未检测到有效 GitLab URL (记录创建于 {created_at})，将创建新议题后关闭")
-                            # 2025年10月及之后的记录，先创建再关闭
-                            queue_sql = f"""
-                            INSERT INTO sync_queue (issue_id, action, priority, metadata, status)
-                            VALUES (
-                                {issue_id},
-                                'create_and_close',
-                                2,
-                                '{{"remove_labels": ["进度::done"], "create_first": true}}',
-                                'pending'
-                            )
-                            """
+                            print(f"🆕 未检测到有效 GitLab URL (记录创建于 {created_at})，立即创建并关闭议题")
+                            # 2025年10月及之后的记录，立即创建再关闭
+                            create_result = sync_issue_to_gitlab(issue_id, action='create')
+                            if create_result.get('success'):
+                                print(f"✅ GitLab 议题已创建: {create_result.get('gitlab_url')}")
+                                # 立即关闭
+                                close_result = sync_issue_to_gitlab(issue_id, action='close')
+                                if close_result.get('success'):
+                                    print(f"✅ GitLab 议题已关闭")
+                                    return True, f"状态更新成功并已创建关闭GitLab议题: {create_result.get('gitlab_url')}"
+                                else:
+                                    print(f"⚠️ GitLab 议题关闭失败: {close_result.get('error')}")
+                                    return True, f"状态更新成功并已创建GitLab议题但关闭失败: {create_result.get('gitlab_url')}"
+                            else:
+                                error_msg = create_result.get('error', '未知错误')
+                                print(f"⚠️ GitLab 议题创建失败: {error_msg}，添加到同步队列")
+                                # 失败时添加到队列
+                                queue_sql = f"""
+                                INSERT INTO sync_queue (issue_id, action, priority, metadata, status)
+                                VALUES (
+                                    {issue_id},
+                                    'create_and_close',
+                                    3,
+                                    '{{"remove_labels": ["进度::done"], "create_first": true, "error": "{error_msg}"}}',
+                                    'pending'
+                                )
+                                """
+                                try:
+                                    db_manager.execute_update(queue_sql)
+                                    print(f"✅ 已添加到同步队列，稍后重试")
+                                except Exception as queue_error:
+                                    print(f"❌ 添加同步队列失败: {str(queue_error)}")
                         else:
                             print(f"⏭️ 跳过创建议题：记录创建于 {created_at}（2025年10月之前），无 GitLab URL")
-                            queue_sql = None
                     else:
                         print(f"⚠️ 无法获取记录创建时间，跳过创建议题")
-                        queue_sql = None
-
-                # 只有当 queue_sql 不为 None 时才执行
-                if queue_sql:
-                    try:
-                        queue_result = db_manager.execute_update(queue_sql)
-                        if queue_result:
-                            if gitlab_url and gitlab_url.strip() and gitlab_url.strip().upper() != 'NULL':
-                                print(f"✅ 已添加关闭任务到同步队列，将移除标签: 进度::done")
-                            else:
-                                print(f"✅ 已添加创建并关闭任务到同步队列，将创建议题后关闭并移除标签: 进度::done")
-                        else:
-                            print(f"⚠️ 添加同步队列任务失败")
-                    except Exception as queue_error:
-                        print(f"❌ 添加同步队列任务异常: {str(queue_error)}")
 
             return True, "状态更新成功"
         else:
@@ -299,55 +402,72 @@ def insert_issue_record(record):
             if result:
                 print(f"✅ 插入成功: {project_name}")
 
-                # 如果插入的记录状态为 closed，需要处理 GitLab 议题
-                if status == 'closed':
-                    print(f"🔗 新插入的记录状态为关闭，处理 GitLab 议题")
+                # 获取刚插入的记录 ID
+                get_id_sql = f"""
+                SELECT id, created_at FROM issues
+                WHERE project_name = '{escape_sql_string(project_name)}'
+                AND problem_description = '{escape_sql_string(problem_description)}'
+                ORDER BY created_at DESC LIMIT 1
+                """
+                id_result = db_manager.execute_query(get_id_sql)
 
-                    # 获取刚插入的记录 ID
-                    get_id_sql = f"""
-                    SELECT id, created_at FROM issues
-                    WHERE project_name = '{escape_sql_string(project_name)}'
-                    AND problem_description = '{escape_sql_string(problem_description)}'
-                    ORDER BY created_at DESC LIMIT 1
-                    """
-                    id_result = db_manager.execute_query(get_id_sql)
+                if id_result and id_result[0].get('id'):
+                    new_issue_id = id_result[0].get('id')
+                    created_at = id_result[0].get('created_at')
 
-                    if id_result and id_result[0].get('id'):
-                        new_issue_id = id_result[0].get('id')
-                        created_at = id_result[0].get('created_at')
+                    # 检查创建时间，只为 2025年10月及之后的记录同步到GitLab
+                    from datetime import datetime as dt
+                    cutoff_date = dt(2025, 10, 1)
 
-                        # 检查创建时间，只为 2025年10月及之后的记录创建议题
-                        from datetime import datetime as dt
-                        cutoff_date = dt(2025, 10, 1)
+                    if isinstance(created_at, str):
+                        created_at = dt.strptime(created_at, '%Y-%m-%d %H:%M:%S')
 
-                        if isinstance(created_at, str):
-                            created_at = dt.strptime(created_at, '%Y-%m-%d %H:%M:%S')
+                    if created_at and created_at >= cutoff_date:
+                        print(f"🆕 新记录创建于 {created_at}（2025年10月之后），立即同步到GitLab")
 
-                        if created_at and created_at >= cutoff_date:
-                            print(f"🆕 新记录创建于 {created_at}（2025年10月之后），将创建议题后关闭")
-                            # 添加创建并关闭任务到同步队列
+                        # 立即同步到GitLab
+                        gitlab_result = sync_issue_to_gitlab(new_issue_id, action='create')
+
+                        if gitlab_result.get('success'):
+                            print(f"✅ GitLab 议题已创建: {gitlab_result.get('gitlab_url')}")
+
+                            # 如果状态为 closed，立即关闭议题
+                            if status == 'closed':
+                                print(f"🔒 新插入记录状态为关闭，立即关闭GitLab议题")
+                                close_result = sync_issue_to_gitlab(new_issue_id, action='close')
+                                if close_result.get('success'):
+                                    print(f"✅ GitLab 议题已关闭")
+                                    return True, f"插入成功并已同步到GitLab（已关闭）: {gitlab_result.get('gitlab_url')}"
+                                else:
+                                    print(f"⚠️ GitLab 议题关闭失败: {close_result.get('error')}")
+
+                            return True, f"插入成功并已同步到GitLab: {gitlab_result.get('gitlab_url')}"
+                        else:
+                            error_msg = gitlab_result.get('error', '未知错误')
+                            print(f"⚠️ GitLab 同步失败: {error_msg}，添加到同步队列")
+                            # 失败时添加到同步队列
+                            action = 'create_and_close' if status == 'closed' else 'create'
                             queue_sql = f"""
                             INSERT INTO sync_queue (issue_id, action, priority, metadata, status)
                             VALUES (
                                 {new_issue_id},
-                                'create_and_close',
-                                2,
-                                '{{"remove_labels": ["进度::done"], "create_first": true}}',
+                                '{action}',
+                                3,
+                                '{{"error": "{error_msg}"}}',
                                 'pending'
                             )
                             """
                             try:
-                                queue_result = db_manager.execute_update(queue_sql)
-                                if queue_result:
-                                    print(f"✅ 已添加创建并关闭任务到同步队列 (ID: {new_issue_id})")
-                                else:
-                                    print(f"⚠️ 添加同步队列任务失败")
+                                db_manager.execute_update(queue_sql)
+                                print(f"✅ 已添加到同步队列，稍后重试")
                             except Exception as queue_error:
-                                print(f"❌ 添加同步队列任务异常: {str(queue_error)}")
-                        else:
-                            print(f"⏭️ 跳过创建议题：新记录创建于 {created_at}（2025年10月之前）")
+                                print(f"❌ 添加同步队列失败: {str(queue_error)}")
+
+                            return True, "插入成功但GitLab同步失败，已添加到队列"
                     else:
-                        print(f"⚠️ 无法获取新插入记录的 ID")
+                        print(f"⏭️ 跳过GitLab同步：新记录创建于 {created_at}（2025年10月之前）")
+                else:
+                    print(f"⚠️ 无法获取新插入记录的 ID")
 
                 return True, "插入成功"
             else:
