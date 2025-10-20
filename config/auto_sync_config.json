@@ -1,0 +1,28 @@
+{
+  "sync_settings": {
+    "batch_size": 50,
+    "max_retries": 3,
+    "retry_delay": 5,
+    "timeout": 30
+  },
+  "cron_schedule": {
+    "full_sync_8am": "0 8 * * *",
+    "full_sync_1pm": "0 13 * * *",
+    "queue_process": "*/5 * * * *",
+    "progress_sync": "0 * * * *",
+    "log_cleanup": "0 2 * * *"
+  },
+  "logging": {
+    "log_retention_days": 7,
+    "log_level": "INFO",
+    "log_format": "%(asctime)s - %(levelname)s - %(message)s"
+  },
+  "database": {
+    "backup_before_sync": false,
+    "backup_retention_days": 30
+  },
+  "gitlab": {
+    "rate_limit_delay": 1.0,
+    "max_concurrent_requests": 5
+  }
+}

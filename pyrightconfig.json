@@ -1,7 +1,8 @@
 {
   "include": [
-    "gitlab_tools",
-    "*.py"
+    "src",
+    "scripts",
+    "main.py"
   ],
   "exclude": [
     "**/node_modules",
@@ -25,9 +26,11 @@
       "pythonVersion": "3.12",
       "pythonPlatform": "Linux",
       "extraPaths": [
-        "./gitlab_tools",
-        "./gitlab_tools/core",
-        "./gitlab_tools/utils"
+        "./src",
+        "./src/gitlab/core",
+        "./src/gitlab/services",
+        "./src/utils",
+        "./src/api"
       ]
     }
   ],
