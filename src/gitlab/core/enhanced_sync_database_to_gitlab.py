@@ -134,14 +134,21 @@ def load_gitlab_config() -> Dict[str, Any]:
     """
     加载GitLab配置
     """
-    config_file = os.path.join(os.path.dirname(__file__), '..', 'config', 'wps_gitlab_config.json')
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"⚠️  读取GitLab配置文件失败: {e}")
-    return {}
+    try:
+        # 使用统一的配置管理器
+        from .config_manager import ConfigManager
+        config_manager = ConfigManager()
+        full_config = config_manager.load_full_config()
+        
+        if full_config:
+            print("✅ 从 wps_gitlab_config.json 加载配置")
+            return full_config
+        else:
+            print("⚠️ 无法加载配置文件")
+            return {}
+    except Exception as e:
+        print(f"❌ 加载GitLab配置失败: {e}")
+        return {}
 
 def map_severity_to_labels(severity_level: int, config: Dict[str, Any]) -> List[str]:
     """

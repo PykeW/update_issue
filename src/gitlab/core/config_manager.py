@@ -43,6 +43,18 @@ class ConfigManager:
             print(f"❌ 加载GitLab配置失败: {e}")
             return None
 
+    def load_full_config(self) -> Optional[Dict[str, Any]]:
+        """
+        加载完整配置（包括标签映射等）
+        """
+        try:
+            config_path = os.path.join(self.base_path, 'config', 'wps_gitlab_config.json')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"❌ 加载完整配置失败: {e}")
+            return None
+
     def load_user_mapping(self) -> Optional[Dict[str, Any]]:
         """
         加载用户映射配置
