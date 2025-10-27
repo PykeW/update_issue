@@ -10,7 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 # 添加项目路径
-sys.path.append(str(Path(__file__).parent))
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from src.gitlab.core.database_manager import DatabaseManager
 from src.gitlab.core.config_manager import ConfigManager
@@ -605,11 +606,12 @@ def get_database_status():
 
 if __name__ == '__main__':
     print("🚀 启动WPS数据上传API服务...")
-    print("📡 服务地址: http://114.55.118.105:80")
+    print("📡 服务地址: http://127.0.0.1:5000")
+    print("📡 外部访问: http://114.55.118.105:80 (通过nginx代理)")
     print("📋 API端点:")
     print("  - GET  /                   健康检查")
     print("  - POST /api/wps/upload     WPS数据上传")
     print("  - GET  /api/database/status 数据库状态")
     print("=" * 50)
 
-    app.run(host='0.0.0.0', port=80, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False)
