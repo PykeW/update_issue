@@ -27,6 +27,14 @@ env/
 *_secrets.json
 *_keys.json
 
+# GitLab配置文件（包含敏感token）
+config/wps_gitlab_config.json
+config/gitlab.env
+gitlab_tools/gitlab.env
+gitlab_tools/wps_gitlab_config.json
+gitlab_tools/config/gitlab.env
+gitlab_tools/config/*.json
+
 # 日志文件
 logs/
 *.log
