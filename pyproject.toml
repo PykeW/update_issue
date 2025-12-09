@@ -25,6 +25,7 @@ dev = [
     "black>=21.0.0",
     "flake8>=3.9.0",
     "mypy>=0.910",
+    "types-requests>=2.25.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -71,6 +72,10 @@ module = [
     "cryptography.*",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "requests.*"
+ignore_missing_imports = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

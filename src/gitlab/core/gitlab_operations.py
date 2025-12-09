@@ -46,13 +46,14 @@ class GitLabOperations:
                 if str(label).startswith('进度::'):
                     return str(label)
 
-            # 根据状态推断进度
+            # 根据状态推断进度（closed状态不返回进度标签）
             state = gitlab_issue.get('state', 'opened')
+            if state == 'closed':
+                return ''
             state_mapping = {
-                'closed': '进度::Done',
                 'opened': '进度::To do'
             }
-            return str(state_mapping.get(state, '进度::Doing'))
+            return str(state_mapping.get(state, '进度::To do'))
 
         except Exception:
             # 确保函数返回值为 str，避免返回 Any 被类型检查标注
@@ -156,4 +157,94 @@ class GitLabOperations:
             if label.startswith('进度::'):
                 return label
         return '进度::To do'
+
+    def sync_progress_from_gitlab(self, gitlab_url: str) -> Optional[str]:
+        """
+        从GitLab获取议题的当前进度信息并返回
+        如果获取失败，返回None
+        如果议题是closed状态，返回空字符串（closed状态的议题不应该有进度标签）
+        """
+        try:
+            if not gitlab_url or gitlab_url.strip() == '' or gitlab_url.upper() == 'NULL':
+                return None
+
+            issue_iid = self.extract_issue_id_from_url(gitlab_url)
+            if not issue_iid:
+                print(f"⚠️ 无法从URL提取议题IID: {gitlab_url}")
+                return None
+
+            gitlab_issue = self.get_issue(issue_iid)
+            if not gitlab_issue:
+                print(f"⚠️ 无法从GitLab获取议题详情: IID={issue_iid}")
+                return None
+
+            # 先检查议题状态，如果是closed，直接返回空字符串
+            state = gitlab_issue.get('state', 'opened')
+            if state == 'closed':
+                print(f"✅ 从GitLab同步进度信息: '' (closed状态，无进度标签)")
+                return ''
+
+            progress = self.get_issue_progress(gitlab_issue)
+            print(f"✅ 从GitLab同步进度信息: {progress}")
+            return progress
+
+        except Exception as e:
+            print(f"⚠️ 同步GitLab进度信息失败: {e}")
+            return None
+
+    def update_issue_labels(self, issue_iid: int, new_progress_label: str) -> bool:
+        """
+        更新GitLab议题的进度标签
+        如果议题状态为closed，则移除进度标签而不是添加
+        """
+        try:
+            gitlab_issue = self.manager.get_issue(self.project_id, issue_iid)
+            if not gitlab_issue:
+                print(f"❌ 无法获取GitLab议题: IID={issue_iid}")
+                return False
+
+            current_state = gitlab_issue.get('state', 'opened')
+            if current_state == 'closed':
+                current_labels = gitlab_issue.get('labels', [])
+                if not isinstance(current_labels, list):
+                    current_labels = []
+
+                updated_labels = [label for label in current_labels if not str(label).startswith('进度::')]
+
+                updated_issue = self.manager.update_issue(
+                    project_id=self.project_id,
+                    issue_iid=issue_iid,
+                    labels=updated_labels
+                )
+
+                if updated_issue:
+                    print(f"✅ GitLab议题已关闭，已移除进度标签")
+                    return True
+                else:
+                    print(f"❌ GitLab议题标签更新失败: IID={issue_iid}")
+                    return False
+
+            current_labels = gitlab_issue.get('labels', [])
+            if not isinstance(current_labels, list):
+                current_labels = []
+
+            updated_labels = [label for label in current_labels if not str(label).startswith('进度::')]
+            updated_labels.append(new_progress_label)
+
+            updated_issue = self.manager.update_issue(
+                project_id=self.project_id,
+                issue_iid=issue_iid,
+                labels=updated_labels
+            )
+
+            if updated_issue:
+                print(f"✅ GitLab议题标签更新成功: {new_progress_label}")
+                return True
+            else:
+                print(f"❌ GitLab议题标签更新失败: IID={issue_iid}")
+                return False
+
+        except Exception as e:
+            print(f"❌ 更新GitLab议题标签异常: {e}")
+            return False
 

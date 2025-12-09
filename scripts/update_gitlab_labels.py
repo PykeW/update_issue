@@ -78,15 +78,15 @@ def update_issue_labels():
             if severity_str in severity_mapping:
                 labels.extend(severity_mapping[severity_str])
 
-            # 进度标签
-            progress_mapping = {
-                "open": "进度::To do",
-                "in_progress": "进度::Doing",
-                "closed": "进度::Done",
-                "resolved": "进度::Done"
-            }
-            progress_label = progress_mapping.get(status, '进度::To do')
-            labels.append(progress_label)
+            # 进度标签（closed状态不添加进度标签）
+            if status != 'closed':
+                progress_mapping = {
+                    "open": "进度::To do",
+                    "paused": "进度::Pausing",
+                    "delayed": "进度::Delayed"
+                }
+                progress_label = progress_mapping.get(status, '进度::To do')
+                labels.append(progress_label)
 
             # 议题类型标签 - 简化版本
             problem_desc = problem_description.lower()

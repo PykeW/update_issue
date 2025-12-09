@@ -96,6 +96,29 @@ def is_valid_record(problem_category, filter_mode):
     else:
         return True
 
+
+def map_status_to_code(status_value):
+    """
+    将WPS表格中的状态值映射为服务器期望的字母状态码
+    状态值应为英文：C(完成), O(进行中), D(延期), N(未开始), P(暂停)
+    """
+    if is_empty_value(status_value):
+        return 'N'  # 默认为未开始
+
+    status_cleaned = clean_string_value(status_value)
+    status_upper = status_cleaned.upper()
+
+    # 有效的状态码
+    valid_codes = ['C', 'O', 'D', 'N', 'P']
+
+    # 检查是否为有效的字母状态码
+    if status_upper in valid_codes:
+        return status_upper
+
+    # 如果无效，默认为未开始并记录警告
+    logger.warning(f"未知状态值 '{status_value}'，将映射为 'N' (未开始)")
+    return 'N'
+
 def transform_record(row_data):
     """转换单条记录"""
     record = {}
@@ -119,7 +142,11 @@ def transform_record(row_data):
 
     for source_field, target_field in field_mapping.items():
         value = row_data.get(source_field, '')
-        record[target_field] = clean_string_value(value)
+        if target_field == 'status':
+            # 状态字段需要映射为字母状态码
+            record[target_field] = map_status_to_code(value)
+        else:
+            record[target_field] = clean_string_value(value)
 
     return record
 

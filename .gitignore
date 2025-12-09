@@ -43,6 +43,18 @@ logs/
 *.sqlite
 *.sqlite3
 
+# 备份文件
+backups/
+*.sql.gz
+backup_summary_*.txt
+
+# IDE配置文件
+.cursor/
+*.plan.md
+
+# 测试文件（根据项目需要决定是否提交）
+# test_issue_create.py
+
 # 系统文件
 .DS_Store
 Thumbs.db

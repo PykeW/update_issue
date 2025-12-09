@@ -51,6 +51,17 @@ def sync_issue_to_gitlab(db_manager, config_manager, issue_id, action='create'):
         if not gitlab_config:
             return {'success': False, 'error': 'GitLab配置加载失败'}
 
+        # 在同步前，先从GitLab获取当前进度信息并更新到数据库
+        gitlab_url = issue_data.get('gitlab_url', '')
+        if gitlab_url and gitlab_url.strip() and gitlab_url.upper() != 'NULL':
+            print(f"🔄 同步前拉取GitLab进度信息...")
+            progress = gitlab_ops.sync_progress_from_gitlab(gitlab_url)
+            if progress:
+                db_manager.update_issue_progress(issue_id, progress)
+                print(f"✅ 已更新数据库进度信息: {progress}")
+            else:
+                print(f"⚠️ 未能从GitLab获取进度信息，继续执行同步")
+
         if action == 'create':
             # 创建新议题
             print(f"📝 创建 GitLab 议题: {issue_data.get('project_name')}")
@@ -76,21 +87,22 @@ def sync_issue_to_gitlab(db_manager, config_manager, issue_id, action='create'):
 
         elif action == 'close':
             # 关闭议题并移除标签
-            gitlab_url = issue_data.get('gitlab_url', '')
             if gitlab_url and gitlab_url.upper() != 'NULL':
                 print(f"🔒 关闭 GitLab 议题: {gitlab_url}")
                 issue_iid = gitlab_ops.extract_issue_id_from_url(gitlab_url)
                 if issue_iid:
-                    result = gitlab_ops.close_issue(issue_iid, issue_data)
-                    if result:
-                        # 更新同步状态
+                    close_success: bool = gitlab_ops.close_issue(issue_iid, issue_data)
+                    if close_success:
+                        # 更新同步状态并清空进度标签
                         update_sql = f"""
                         UPDATE issues
-                        SET sync_status = 'synced', last_sync_time = NOW()
+                        SET sync_status = 'synced',
+                            last_sync_time = NOW(),
+                            gitlab_progress = ''
                         WHERE id = {issue_id}
                         """
                         db_manager.execute_update(update_sql)
-                        print(f"✅ GitLab 议题关闭成功")
+                        print(f"✅ GitLab 议题关闭成功，已清空进度标签")
                         return {'success': True}
                     else:
                         return {'success': False, 'error': '关闭失败'}
@@ -237,6 +249,144 @@ def process_pending_sync_queue(db_manager, config_manager, action_filter=None, l
                             print(f"❌ 任务 {task_id} 失败: {error_msg}")
                     else:
                         error_msg = f"创建失败: {create_result.get('error', '未知错误')}"
+                        fail_sql = f"""
+                        UPDATE sync_queue
+                        SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
+                        WHERE id = {task_id}
+                        """
+                        db_manager.execute_update(fail_sql)
+                        failed_count += 1
+                        print(f"❌ 任务 {task_id} 失败: {error_msg}")
+
+                elif action == 'update':
+                    # 更新议题标签
+                    try:
+                        import json
+                        metadata = task.get('metadata', '{}')
+                        if isinstance(metadata, str):
+                            metadata = json.loads(metadata)
+                        elif not isinstance(metadata, dict):
+                            metadata = {}
+
+                        progress_label = metadata.get('progress_label', '进度::To do')
+
+                        issue_data = get_issue_by_id(db_manager, issue_id)
+                        if not issue_data:
+                            error_msg = '议题不存在'
+                            fail_sql = f"""
+                            UPDATE sync_queue
+                            SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
+                            WHERE id = {task_id}
+                            """
+                            db_manager.execute_update(fail_sql)
+                            failed_count += 1
+                            print(f"❌ 任务 {task_id} 失败: {error_msg}")
+                            continue
+
+                        issue_status = issue_data.get('status', 'open')
+                        if issue_status == 'closed':
+                            gitlab_url = issue_data.get('gitlab_url', '')
+                            if not gitlab_url or gitlab_url.strip() == '' or gitlab_url.strip().upper() == 'NULL':
+                                complete_sql = f"""
+                                UPDATE sync_queue
+                                SET status = 'completed', processed_at = NOW()
+                                WHERE id = {task_id}
+                                """
+                                db_manager.execute_update(complete_sql)
+                                success_count += 1
+                                print(f"✅ 任务 {task_id} 完成: 议题 {issue_id} 状态为closed，跳过标签更新")
+                                continue
+
+                            from src.gitlab.core.gitlab_operations import GitLabOperations
+                            gitlab_ops = GitLabOperations()
+                            issue_iid = gitlab_ops.extract_issue_id_from_url(gitlab_url)
+
+                            if not issue_iid:
+                                error_msg = '无法从URL提取议题IID'
+                                fail_sql = f"""
+                                UPDATE sync_queue
+                                SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
+                                WHERE id = {task_id}
+                                """
+                                db_manager.execute_update(fail_sql)
+                                failed_count += 1
+                                print(f"❌ 任务 {task_id} 失败: {error_msg}")
+                                continue
+
+                            close_success = gitlab_ops.close_issue(issue_iid, issue_data)
+                            if close_success:
+                                complete_sql = f"""
+                                UPDATE sync_queue
+                                SET status = 'completed', processed_at = NOW()
+                                WHERE id = {task_id}
+                                """
+                                db_manager.execute_update(complete_sql)
+                                success_count += 1
+                                print(f"✅ 任务 {task_id} 完成: 议题 {issue_id} 状态为closed，已关闭GitLab议题并移除进度标签")
+                                continue
+                            else:
+                                error_msg = '关闭议题失败'
+                                fail_sql = f"""
+                                UPDATE sync_queue
+                                SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
+                                WHERE id = {task_id}
+                                """
+                                db_manager.execute_update(fail_sql)
+                                failed_count += 1
+                                print(f"❌ 任务 {task_id} 失败: {error_msg}")
+                                continue
+                        else:
+                            gitlab_url = issue_data.get('gitlab_url', '')
+                            if not gitlab_url or gitlab_url.strip() == '' or gitlab_url.strip().upper() == 'NULL':
+                                error_msg = '没有有效的GitLab URL'
+                                fail_sql = f"""
+                                UPDATE sync_queue
+                                SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
+                                WHERE id = {task_id}
+                                """
+                                db_manager.execute_update(fail_sql)
+                                failed_count += 1
+                                print(f"❌ 任务 {task_id} 失败: {error_msg}")
+                                continue
+
+                            from src.gitlab.core.gitlab_operations import GitLabOperations
+                            gitlab_ops = GitLabOperations()
+                            issue_iid = gitlab_ops.extract_issue_id_from_url(gitlab_url)
+
+                            if not issue_iid:
+                                error_msg = '无法从URL提取议题IID'
+                                fail_sql = f"""
+                                UPDATE sync_queue
+                                SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
+                                WHERE id = {task_id}
+                                """
+                                db_manager.execute_update(fail_sql)
+                                failed_count += 1
+                                print(f"❌ 任务 {task_id} 失败: {error_msg}")
+                                continue
+
+                            success = gitlab_ops.update_issue_labels(issue_iid, progress_label)
+                        if success:
+                            complete_sql = f"""
+                            UPDATE sync_queue
+                            SET status = 'completed', processed_at = NOW()
+                            WHERE id = {task_id}
+                            """
+                            db_manager.execute_update(complete_sql)
+                            success_count += 1
+                            print(f"✅ 任务 {task_id} 完成: 议题 {issue_id} 标签已更新为'{progress_label}'")
+                        else:
+                            error_msg = '标签更新失败'
+                            fail_sql = f"""
+                            UPDATE sync_queue
+                            SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()
+                            WHERE id = {task_id}
+                            """
+                            db_manager.execute_update(fail_sql)
+                            failed_count += 1
+                            print(f"❌ 任务 {task_id} 失败: {error_msg}")
+                    except Exception as e:
+                        error_msg = str(e)
                         fail_sql = f"""
                         UPDATE sync_queue
                         SET status = 'failed', error_message = '{error_msg}', processed_at = NOW()

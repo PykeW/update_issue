@@ -5,32 +5,8 @@
 支持进度跟踪和智能更新
 """
 
-import os
-import json
 import requests
-from typing import Dict, List, Optional, Any
-
-def load_user_mapping() -> Dict[str, Any]:
-    """
-    加载用户映射配置
-    """
-    try:
-        mapping_file = os.path.join(os.path.dirname(__file__), '..', 'config', 'user_mapping.json')
-        if os.path.exists(mapping_file):
-            with open(mapping_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        else:
-            print("⚠️  用户映射文件不存在，使用默认配置")
-            return {
-                'user_mapping': {},
-                'default_assignee': 'kohill'
-            }
-    except Exception as e:
-        print(f"⚠️  加载用户映射失败: {e}")
-        return {
-            'user_mapping': {},
-            'default_assignee': 'kohill'
-        }
+from typing import Dict, List, Optional, Any, cast
 
 def find_user_mapping(name: str, user_mapping: Dict[str, str]) -> Optional[str]:
     """智能查找用户映射"""
@@ -118,8 +94,13 @@ def get_user_id_by_username(manager, username: str) -> Optional[int]:
 
         if response.status_code == 200:
             users = response.json()
-            if users:
-                return users[0]['id']
+            if users and isinstance(users, list) and len(users) > 0:
+                user_id = users[0].get('id')
+                if isinstance(user_id, int):
+                    return user_id
+                else:
+                    print(f"❌ GitLab用户 '{username}' 的ID类型不正确")
+                    return None
             else:
                 print(f"❌ 未找到GitLab用户: {username}")
                 return None
@@ -129,26 +110,6 @@ def get_user_id_by_username(manager, username: str) -> Optional[int]:
     except Exception as e:
         print(f"❌ 获取用户 '{username}' ID异常: {e}")
         return None
-
-def load_gitlab_config() -> Dict[str, Any]:
-    """
-    加载GitLab配置
-    """
-    try:
-        # 使用统一的配置管理器
-        from .config_manager import ConfigManager
-        config_manager = ConfigManager()
-        full_config = config_manager.load_full_config()
-        
-        if full_config:
-            print("✅ 从 wps_gitlab_config.json 加载配置")
-            return full_config
-        else:
-            print("⚠️ 无法加载配置文件")
-            return {}
-    except Exception as e:
-        print(f"❌ 加载GitLab配置失败: {e}")
-        return {}
 
 def map_severity_to_labels(severity_level: int, config: Dict[str, Any]) -> List[str]:
     """
@@ -161,7 +122,9 @@ def map_severity_to_labels(severity_level: int, config: Dict[str, Any]) -> List[
     mapping = config['labels']['severity_mapping']
 
     if severity_str in mapping:
-        return mapping[severity_str]
+        labels = mapping[severity_str]
+        if isinstance(labels, list):
+            return cast(List[str], labels)
     return []
 
 def map_status_to_progress(status: str, config: Dict[str, Any]) -> str:
@@ -174,7 +137,9 @@ def map_status_to_progress(status: str, config: Dict[str, Any]) -> str:
     mapping = config['labels']['progress_mapping']
 
     if status in mapping:
-        return mapping[status]
+        progress = mapping[status]
+        if isinstance(progress, str):
+            return progress
     return '进度::To do'
 
 def get_issue_type_label(problem_description: str, config: Dict[str, Any]) -> str:
@@ -189,9 +154,11 @@ def get_issue_type_label(problem_description: str, config: Dict[str, Any]) -> st
 
     # 按优先级检查关键词
     for config_data in mapping.values():
-        keywords = config_data['keywords']
-        if any(keyword in problem_desc for keyword in keywords):
-            return config_data['label']
+        keywords = config_data.get('keywords', [])
+        if isinstance(keywords, list) and any(keyword in problem_desc for keyword in keywords):
+            label = config_data.get('label', '议题类型::功能优化')
+            if isinstance(label, str):
+                return label
 
     return '议题类型::功能优化'
 
@@ -246,9 +213,11 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, co
         severity_labels = map_severity_to_labels(issue_data.get('severity_level', 0), config)
         labels.extend(severity_labels)
 
-        # 进度标签
-        progress_label = map_status_to_progress(issue_data.get('status', 'open'), config)
-        labels.append(progress_label)
+        # 进度标签（closed状态不添加进度标签）
+        status = issue_data.get('status', 'open')
+        if status != 'closed':
+            progress_label = map_status_to_progress(status, config)
+            labels.append(progress_label)
 
         # 固定标签
         if config and 'labels' in config and 'additional_labels' in config['labels']:
@@ -274,7 +243,7 @@ def create_gitlab_issue(issue_data: Dict[str, Any], manager, project_id: int, co
         )
 
         if gitlab_issue:
-            return gitlab_issue
+            return cast(Dict[str, Any], gitlab_issue)
         else:
             print(f"❌ 创建GitLab议题失败: {title}")
             return None

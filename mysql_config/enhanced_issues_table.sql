@@ -20,7 +20,7 @@ CREATE TABLE issues (
     action_record TEXT COMMENT '行动记录',
     initiator VARCHAR(100) COMMENT '发起人',
     responsible_person VARCHAR(100) COMMENT '责任人',
-    status ENUM('open', 'in_progress', 'closed', 'resolved') DEFAULT 'open' COMMENT '状态',
+    status ENUM('open', 'in_progress', 'closed', 'resolved', 'paused', 'delayed') DEFAULT 'open' COMMENT '状态',
     start_time DATETIME COMMENT '开始时间',
     target_completion_time DATETIME COMMENT '目标完成时间',
     actual_completion_time DATETIME COMMENT '实完时间',

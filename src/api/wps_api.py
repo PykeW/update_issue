@@ -77,6 +77,17 @@ def sync_issue_to_gitlab(issue_id, action='create'):
             'project_path': gitlab_config.get('project_path', '')
         }
 
+        # 在同步前，先从GitLab获取当前进度信息并更新到数据库
+        gitlab_url = issue_data.get('gitlab_url', '')
+        if gitlab_url and gitlab_url.strip() and gitlab_url.upper() != 'NULL':
+            print(f"🔄 同步前拉取GitLab进度信息...")
+            progress = gitlab_ops.sync_progress_from_gitlab(gitlab_url)
+            if progress:
+                db_manager.update_issue_progress(issue_id, progress)
+                print(f"✅ 已更新数据库进度信息: {progress}")
+            else:
+                print(f"⚠️ 未能从GitLab获取进度信息，继续执行同步")
+
         if action == 'create':
             # 创建新议题
             print(f"📝 创建 GitLab 议题: {issue_data.get('project_name')}")
@@ -103,21 +114,22 @@ def sync_issue_to_gitlab(issue_id, action='create'):
 
         elif action == 'close':
             # 关闭议题并移除标签
-            gitlab_url = issue_data.get('gitlab_url', '')
             if gitlab_url and gitlab_url.upper() != 'NULL':
                 print(f"🔒 关闭 GitLab 议题: {gitlab_url}")
                 issue_iid = gitlab_ops.extract_issue_id_from_url(gitlab_url)
                 if issue_iid:
                     close_ok = gitlab_ops.close_issue(issue_iid, issue_data)
                     if close_ok:
-                        # 更新同步状态
+                        # 更新同步状态并清空进度标签
                         update_sql = f"""
                         UPDATE issues
-                        SET sync_status = 'synced', last_sync_time = NOW()
+                        SET sync_status = 'synced',
+                            last_sync_time = NOW(),
+                            gitlab_progress = ''
                         WHERE id = {issue_id}
                         """
                         db_manager.execute_update(update_sql)
-                        print(f"✅ GitLab 议题关闭成功")
+                        print(f"✅ GitLab 议题关闭成功，已清空进度标签")
                         return {'success': True}
                     else:
                         return {'success': False, 'error': '关闭失败'}
@@ -170,6 +182,10 @@ def update_issue_status(issue_id, new_status, record, gitlab_url=None):
 
         # 准备更新的字段
         actual_completion_time = clean_string_value(record.get('actual_completion_time', ''))
+        responsible_person = clean_string_value(record.get('responsible_person', ''))
+        solution = clean_string_value(record.get('solution', ''))
+        action_record = clean_string_value(record.get('action_record', ''))
+        remarks = clean_string_value(record.get('remarks', ''))
 
         # 处理时间字段
         def is_valid_datetime(value):
@@ -184,14 +200,39 @@ def update_issue_status(issue_id, new_status, record, gitlab_url=None):
 
         actual_time_sql = f"'{actual_completion_time}'" if is_valid_datetime(actual_completion_time) else 'NOW()'
 
+        # 转义SQL字符串
+        def escape_sql_string(value):
+            return value.replace("'", "''")
+
+        # 构建更新字段列表
+        update_fields = [
+            f"status = '{new_status}'",
+            f"actual_completion_time = {actual_time_sql}",
+            "sync_status = 'pending'",
+            "updated_at = NOW()"
+        ]
+
+        # 如果责任人有值，则更新
+        if responsible_person:
+            update_fields.append(f"responsible_person = '{escape_sql_string(responsible_person)}'")
+
+        # 如果解决方案有值，则更新
+        if solution:
+            update_fields.append(f"solution = '{escape_sql_string(solution)}'")
+
+        # 如果行动记录有值，则更新
+        if action_record:
+            update_fields.append(f"action_record = '{escape_sql_string(action_record)}'")
+
+        # 如果备注有值，则更新
+        if remarks:
+            update_fields.append(f"remarks = '{escape_sql_string(remarks)}'")
+
         # 构建更新SQL
         update_sql = f"""
         UPDATE issues
         SET
-            status = '{new_status}',
-            actual_completion_time = {actual_time_sql},
-            sync_status = 'pending',
-            updated_at = NOW()
+            {', '.join(update_fields)}
         WHERE id = {issue_id}
         """
 
@@ -201,7 +242,17 @@ def update_issue_status(issue_id, new_status, record, gitlab_url=None):
         result = db_manager.execute_update(update_sql)
 
         if result:
-            print(f"✅ 议题状态更新成功: ID={issue_id}, 状态={new_status}")
+            updated_info = [f"状态={new_status}"]
+            if responsible_person:
+                updated_info.append(f"责任人={responsible_person}")
+            if solution:
+                updated_info.append("解决方案已更新")
+            if action_record:
+                updated_info.append("行动记录已更新")
+            if remarks:
+                updated_info.append("备注已更新")
+
+            print(f"✅ 议题更新成功: ID={issue_id}, {', '.join(updated_info)}")
 
             # 如果状态为 closed，立即同步到 GitLab
             if new_status == 'closed':
@@ -238,6 +289,47 @@ def update_issue_status(issue_id, new_status, record, gitlab_url=None):
                     # 新规则：无 GitLab URL 且状态为 closed 不创建议题
                     print("⏭️ 跳过创建议题：无 GitLab URL 且状态为 closed（按新规则不创建）")
 
+            # 如果状态为 paused，立即更新 GitLab 标签为"进度::Pausing"
+            elif new_status == 'paused':
+                print(f"🔗 状态已暂停，立即更新 GitLab 标签")
+
+                # 检查是否已有 GitLab URL（排除 NULL 和空字符串）
+                if gitlab_url and gitlab_url.strip() and gitlab_url.strip().upper() != 'NULL':
+                    print(f"✅ 检测到现有 GitLab URL: {gitlab_url}")
+                    try:
+                        from src.gitlab.core.gitlab_operations import GitLabOperations
+                        gitlab_ops = GitLabOperations()
+                        issue_iid = gitlab_ops.extract_issue_id_from_url(gitlab_url)
+                        if issue_iid:
+                            success = gitlab_ops.update_issue_labels(issue_iid, '进度::Pausing')
+                            if success:
+                                print(f"✅ GitLab 议题标签已更新为'进度::Pausing'")
+                                return True, "状态更新成功并已更新GitLab标签为'进度::Pausing'"
+                            else:
+                                print(f"⚠️ GitLab 议题标签更新失败，添加到同步队列")
+                                queue_sql = f"""
+                                INSERT INTO sync_queue (issue_id, action, priority, metadata, status)
+                                VALUES (
+                                    {issue_id},
+                                    'update',
+                                    2,
+                                    '{{"progress_label": "进度::Pausing", "error": "标签更新失败"}}',
+                                    'pending'
+                                )
+                                """
+                                try:
+                                    db_manager.execute_update(queue_sql)
+                                    print(f"✅ 已添加到同步队列，稍后重试")
+                                except Exception as queue_error:
+                                    print(f"❌ 添加同步队列失败: {str(queue_error)}")
+                        else:
+                            print(f"⚠️ 无法从URL提取议题IID: {gitlab_url}")
+                    except Exception as e:
+                        error_msg = str(e)
+                        print(f"⚠️ 更新GitLab标签异常: {error_msg}")
+                else:
+                    print("⏭️ 无 GitLab URL，跳过标签更新")
+
             return True, "状态更新成功"
         else:
             print(f"❌ 议题状态更新失败: ID={issue_id}")
@@ -265,10 +357,11 @@ def insert_issue_record(record):
         # 状态映射：WPS状态 -> 数据库状态
         wps_status = clean_string_value(record.get('status', 'open'))
         status_mapping = {
-            'O': 'open',           # Open
-            'C': 'closed',        # Closed
-            'P': 'in_progress',   # In Progress
-            'R': 'resolved'       # Resolved
+            'C': 'closed',        # C - 完成
+            'O': 'open',          # O - 进行中（提出人状态映射为open）
+            'D': 'delayed',       # D - 延期
+            'N': 'open',          # N - 未开始
+            'P': 'paused'         # P - 暂停
         }
         status = status_mapping.get(wps_status.upper(), 'open')
         start_time = clean_string_value(record.get('start_time', ''))

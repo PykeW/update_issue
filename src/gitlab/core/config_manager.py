@@ -7,7 +7,7 @@
 
 import os
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 
 class ConfigManager:
     """配置管理器"""
@@ -50,7 +50,7 @@ class ConfigManager:
         try:
             config_path = os.path.join(self.base_path, 'config', 'wps_gitlab_config.json')
             with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                return cast(Dict[str, Any], json.load(f))
         except Exception as e:
             print(f"❌ 加载完整配置失败: {e}")
             return None
@@ -62,7 +62,7 @@ class ConfigManager:
         try:
             mapping_path = os.path.join(self.base_path, 'config', 'user_mapping.json')
             with open(mapping_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                return cast(Dict[str, Any], json.load(f))
         except Exception as e:
             print(f"❌ 加载用户映射配置失败: {e}")
             return None
