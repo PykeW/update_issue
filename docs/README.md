@@ -15,7 +15,7 @@ source scripts/activate_venv.sh
 ### 2. 配置设置
 
 编辑配置文件：
-- `config/gitlab.env` - GitLab 配置
+- `config/wps_gitlab_config.json` - GitLab 配置（包含 URL、Token、项目信息、标签映射等）
 - `config/database.env` - 数据库配置
 
 ### 3. 启动服务

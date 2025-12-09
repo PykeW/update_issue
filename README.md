@@ -76,7 +76,7 @@ python main.py test --type all         # 运行测试（sync/api/all）
 ## ⚙️ 配置
 
 编辑配置文件：
-- `config/gitlab.env` - GitLab 配置
+- `config/wps_gitlab_config.json` - GitLab 配置（包含 URL、Token、项目信息、标签映射等）
 - `config/database.env` - 数据库配置
 - `config/user_mapping.json` - 用户映射
 

@@ -213,44 +213,27 @@ class GitLabIssueManager:
 
 def load_config() -> Optional[Dict[str, Any]]:
     """
-    加载 GitLab 配置，优先环境变量/ENV 文件；若缺失则回退到 wps_gitlab_config.json。
+    加载 GitLab 配置，从 wps_gitlab_config.json 加载。
+    系统环境变量优先级最高（如果设置了）。
     返回统一键名: gitlab_url/private_token/project_id/project_path
     """
-    # 优先：gitlab.env 文件与系统环境变量
-    env_config: Dict[str, str] = {}
-    env_file = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'config', 'gitlab.env')
+    # 优先：系统环境变量
+    gitlab_url = os.getenv('GITLAB_URL', '')
+    private_token = os.getenv('GITLAB_PRIVATE_TOKEN', '')
+    project_id = os.getenv('GITLAB_PROJECT_ID', '')
+    project_path = os.getenv('GITLAB_PROJECT_PATH', '')
 
-    if os.path.exists(env_file):
-        print("✅ 从 gitlab.env 文件加载配置")
-        try:
-            with open(env_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        env_config[key.strip()] = value.strip()
-        except Exception as e:
-            print(f"⚠️  读取配置文件失败: {e}")
-    else:
-        print("⚠️  未找到环境配置文件，将尝试使用 JSON 配置")
+    # 如果环境变量已设置完整，直接返回
+    if gitlab_url and private_token and project_id and project_path:
+        print("✅ 从系统环境变量加载配置")
+        return {
+            'gitlab_url': gitlab_url,
+            'private_token': private_token,
+            'project_id': project_id,
+            'project_path': project_path
+        }
 
-    gitlab_url = os.getenv('GITLAB_URL', env_config.get('GITLAB_URL', ''))
-    private_token = os.getenv('GITLAB_PRIVATE_TOKEN', env_config.get('GITLAB_PRIVATE_TOKEN', ''))
-    project_id = os.getenv('GITLAB_PROJECT_ID', env_config.get('GITLAB_PROJECT_ID', ''))
-    project_path = os.getenv('GITLAB_PROJECT_PATH', env_config.get('GITLAB_PROJECT_PATH', ''))
-
-    collected: Dict[str, Any] = {
-        'gitlab_url': gitlab_url,
-        'private_token': private_token,
-        'project_id': project_id,
-        'project_path': project_path
-    }
-
-    missing: List[str] = [k for k, v in collected.items() if not v]
-    if not missing:
-        return collected
-
-    # 回退：统一 JSON 配置（wps_gitlab_config.json）
+    # 从 wps_gitlab_config.json 加载配置
     try:
         from .config_manager import ConfigManager
         cfg_mgr = ConfigManager()
@@ -259,18 +242,28 @@ def load_config() -> Optional[Dict[str, Any]]:
             print("❌ 无法加载 JSON 配置 wps_gitlab_config.json")
             return None
         gitlab = full.get('gitlab', {})
-        fallback = {
+        config = {
             'gitlab_url': gitlab.get('url', ''),
             'private_token': gitlab.get('token', ''),
             'project_id': str(gitlab.get('project_id', '')),
             'project_path': gitlab.get('project_path', '')
         }
-        missing_fb: List[str] = [k for k, v in fallback.items() if not v]
-        if missing_fb:
-            print(f"❌ 缺少必需配置: {', '.join(missing_fb)}")
+        # 环境变量覆盖JSON配置
+        if gitlab_url:
+            config['gitlab_url'] = gitlab_url
+        if private_token:
+            config['private_token'] = private_token
+        if project_id:
+            config['project_id'] = project_id
+        if project_path:
+            config['project_path'] = project_path
+
+        missing: List[str] = [k for k, v in config.items() if not v]
+        if missing:
+            print(f"❌ 缺少必需配置: {', '.join(missing)}")
             return None
         print("✅ 从 wps_gitlab_config.json 加载配置")
-        return fallback
+        return config
     except Exception as e:
         print(f"❌ 加载 JSON 配置失败: {e}")
         return None

@@ -174,7 +174,6 @@ def fix_closed_issues_urls(dry_run: bool = True, min_score: int = 30):
         for db_issue in closed_issues:
             db_id = db_issue['id']
             db_project = db_issue.get('project_name', '')
-            db_desc = db_issue.get('problem_description', '')
 
             best_match = None
             best_score = 0
@@ -206,7 +205,8 @@ def fix_closed_issues_urls(dry_run: bool = True, min_score: int = 30):
                     """
                     if db_manager.execute_update(update_sql):
                         updated_count += 1
-                        existing_iids.add(gitlab_iid)
+                        if gitlab_iid is not None:
+                            existing_iids.add(gitlab_iid)
                         available_gitlab_issues = [issue for issue in available_gitlab_issues
                                                   if issue.get('iid') != gitlab_iid]
                         print(f"   ✅ 数据库已更新")

@@ -132,7 +132,6 @@ def check_closed_issues_match():
         # 1. 获取数据库中有gitlab_url的议题（用于排除已匹配的）
         print("📋 查询数据库中有gitlab_url的议题...")
         issues_with_url = db_manager.get_issues_with_gitlab_url()
-        existing_urls = set()
         existing_iids = set()
         for issue in issues_with_url:
             url = issue.get('gitlab_url', '')

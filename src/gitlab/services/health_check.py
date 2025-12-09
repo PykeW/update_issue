@@ -60,15 +60,22 @@ class HealthChecker:
     def check_config_files(self):
         """检查配置文件"""
         config_files = [
-            'config/gitlab.env',
             'config/wps_gitlab_config.json',
             'config/user_mapping.json',
             'config/auto_sync_config.json'
         ]
 
         all_good = True
+        # 从当前文件位置找到项目根目录
+        # src/gitlab/services/health_check.py -> 项目根目录
+        # __file__ = src/gitlab/services/health_check.py
+        # parent = services
+        # parent.parent = gitlab
+        # parent.parent.parent = src
+        # parent.parent.parent.parent = 项目根目录
+        project_root = Path(__file__).parent.parent.parent.parent
         for config_file in config_files:
-            file_path = Path(__file__).parent.parent / config_file
+            file_path = project_root / config_file
             if file_path.exists():
                 print(f"✅ 配置文件存在: {config_file}")
             else:
